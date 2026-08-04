@@ -228,6 +228,42 @@
   .chat-send-form input{flex:1; padding:11px 14px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:14px; background:var(--bg);}
   .chat-send-form input:focus{border-color:var(--amber-500); outline:none;}
   .chat-empty{margin:auto; text-align:center; color:var(--text-400); font-size:13px;}
+  .chat-bubble .chat-bubble-del{position:absolute; top:-8px; left:-8px; width:22px; height:22px; border-radius:50%; background:var(--red-500); color:#fff; border:2px solid var(--surface); display:none; align-items:center; justify-content:center; cursor:pointer; padding:0;}
+  .chat-bubble .chat-bubble-del svg{width:11px;height:11px;}
+  .chat-bubble.me:hover .chat-bubble-del{display:flex;}
+
+  /* ===== NOTIFICATIONS ===== */
+  .notif-bell-wrap{position:relative;}
+  .notif-bell-btn{position:relative; background:var(--bg); border:none; border-radius:50%; width:40px; height:40px; display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--text-900);}
+  .notif-bell-btn:hover{background:var(--amber-100); color:var(--amber-600);}
+  .notif-bell-dot{position:absolute; top:6px; left:6px; min-width:16px; height:16px; padding:0 3px; border-radius:99px; background:var(--red-500); color:#fff; font-size:9.5px; font-weight:800; display:flex; align-items:center; justify-content:center; border:2px solid var(--surface);}
+  .notif-panel{position:absolute; top:calc(100% + 10px); left:0; width:340px; max-width:calc(100vw - 32px); max-height:420px; overflow-y:auto; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); box-shadow:var(--shadow-lg); z-index:60; display:none;}
+  .notif-panel.open{display:block;}
+  .notif-panel-head{display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid var(--border); position:sticky; top:0; background:var(--surface);}
+  .notif-panel-head b{font-size:14px;}
+  .notif-panel-head button{background:none; border:none; color:var(--amber-600); font-size:12px; font-weight:700; cursor:pointer;}
+  .notif-item{display:flex; gap:10px; padding:12px 16px; border-bottom:1px solid var(--border); cursor:pointer; position:relative;}
+  .notif-item:last-child{border-bottom:none;}
+  .notif-item:hover{background:var(--bg);}
+  .notif-item.unread{background:var(--amber-100);}
+  .notif-item.unread::before{content:''; position:absolute; top:16px; right:6px; width:7px; height:7px; border-radius:50%; background:var(--amber-500);}
+  .notif-item-icon{width:34px; height:34px; border-radius:10px; background:var(--navy-900); color:#fff; display:flex; align-items:center; justify-content:center; flex-shrink:0;}
+  .notif-item-icon.danger{background:var(--red-500);}
+  .notif-item-icon.warn{background:var(--amber-500); color:var(--navy-950);}
+  .notif-item-body{flex:1; min-width:0;}
+  .notif-item-title{font-size:13px; font-weight:800; margin-bottom:2px;}
+  .notif-item-desc{font-size:12px; color:var(--text-600); line-height:1.6;}
+  .notif-item-time{font-size:10.5px; color:var(--text-400); margin-top:4px;}
+  .notif-empty{padding:30px 16px; text-align:center; color:var(--text-400); font-size:13px;}
+
+  /* ===== RESOURCES (مصادر التعلم) ===== */
+  .res-toolbar{display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px;}
+  .res-col-tag{display:inline-flex; align-items:center; gap:6px; background:var(--bg); border:1px solid var(--border); border-radius:99px; padding:5px 6px 5px 12px; font-size:12.5px; font-weight:700;}
+  .res-col-tag button{background:none; border:none; cursor:pointer; color:var(--text-400); display:flex; padding:3px; border-radius:50%;}
+  .res-col-tag button:hover{background:var(--red-100); color:var(--red-500);}
+  .res-cols-list{display:flex; flex-wrap:wrap; gap:8px; margin-bottom:18px;}
+  table.res-table td, table.res-table th{max-width:260px;}
+  table.res-table td.res-cell-note, table.res-table td.res-cell-text{white-space:pre-wrap; word-break:break-word;}
 
   .bar-row{display:flex; align-items:center; gap:12px; margin-bottom:12px; font-size:13px;}
   .bar-label{width:120px; flex-shrink:0; color:var(--text-600); font-weight:700;}
@@ -385,6 +421,16 @@
       <button class="hamburger" id="hamburgerBtn" aria-label="فتح القائمة"></button>
       <div class="page-title-top" id="pageTitleTop">المهام</div>
       <div class="topbar-spacer"></div>
+      <div class="notif-bell-wrap">
+        <button type="button" class="notif-bell-btn" id="notifBellBtn" aria-label="الإشعارات"></button>
+        <div class="notif-panel" id="notifPanel">
+          <div class="notif-panel-head">
+            <b>الإشعارات</b>
+            <button type="button" id="notifMarkAllBtn">تحديد الكل كمقروء</button>
+          </div>
+          <div id="notifListWrap"></div>
+        </div>
+      </div>
       <div class="user-chip" id="userChip"></div>
     </header>
     <main class="page-content" id="pageContent"></main>
@@ -539,6 +585,57 @@
   </div>
 </div>
 
+<!-- ============ RESOURCE COLUMN MODAL (إضافة عمود لمصادر التعلم — مدير فقط) ============ -->
+<div class="modal-overlay hidden" id="resColModalOverlay">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>إضافة عمود جديد</h3>
+      <button class="modal-close" id="resColModalClose"></button>
+    </div>
+    <div class="modal-body">
+      <form id="resColForm">
+        <div class="form-row">
+          <label for="resColLabel">اسم العمود</label>
+          <input type="text" id="resColLabel" required placeholder="مثال: اسم الأداة">
+        </div>
+        <div class="form-row">
+          <label for="resColType">نوع البيانات</label>
+          <select id="resColType">
+            <option value="text">نص</option>
+            <option value="link">رابط</option>
+            <option value="date">تاريخ</option>
+            <option value="note">ملاحظة (نص طويل)</option>
+          </select>
+        </div>
+        <div class="modal-foot">
+          <button type="button" class="btn btn-ghost" id="resColCancelBtn">إلغاء</button>
+          <button type="submit" class="btn btn-primary">إضافة العمود</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ============ RESOURCE ROW MODAL (إضافة/تعديل صف بيانات — مدير فقط) ============ -->
+<div class="modal-overlay hidden" id="resRowModalOverlay">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="resRowModalTitle">إضافة مصدر جديد</h3>
+      <button class="modal-close" id="resRowModalClose"></button>
+    </div>
+    <div class="modal-body">
+      <form id="resRowForm">
+        <input type="hidden" id="resRowId">
+        <div id="resRowFieldsWrap"></div>
+        <div class="modal-foot">
+          <button type="button" class="btn btn-ghost" id="resRowCancelBtn">إلغاء</button>
+          <button type="submit" class="btn btn-primary">حفظ</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
 <script type="module">
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
@@ -566,7 +663,9 @@ const ICONS = {
   close:`<svg class="icon" viewBox="0 0 24 24"><line x1="5" y1="5" x2="19" y2="19"/><line x1="19" y1="5" x2="5" y2="19"/></svg>`,
   ban:`<svg class="icon icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><line x1="5.5" y1="5.5" x2="18.5" y2="18.5"/></svg>`,
   bulb:`<svg class="icon" viewBox="0 0 24 24"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a6.5 6.5 0 0 0-3.8 11.8c.6.45 1.05 1.15 1.15 1.9h5.3c.1-.75.55-1.45 1.15-1.9A6.5 6.5 0 0 0 12 2Z"/></svg>`,
-  chat:`<svg class="icon" viewBox="0 0 24 24"><path d="M4 4h16v12H8l-4 4V4Z"/><line x1="8" y1="9" x2="16" y2="9"/><line x1="8" y1="13" x2="13" y2="13"/></svg>`
+  chat:`<svg class="icon" viewBox="0 0 24 24"><path d="M4 4h16v12H8l-4 4V4Z"/><line x1="8" y1="9" x2="16" y2="9"/><line x1="8" y1="13" x2="13" y2="13"/></svg>`,
+  book:`<svg class="icon" viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5Z"/><path d="M4 5.5v15A2.5 2.5 0 0 1 6.5 18H20"/></svg>`,
+  bell:`<svg class="icon" viewBox="0 0 24 24"><path d="M6 9a6 6 0 0 1 12 0c0 4.5 1.5 6 2 6.5H4c.5-.5 2-2 2-6.5Z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>`
 };
 
 /* ============================================================
@@ -850,6 +949,67 @@ async function learningDelete(id){
   return { message: 'تم حذف مادة التعلم' };
 }
 
+/* مصادر التعلم — مصدر عام يفيد الفريق، المدير يبني له أعمدة بالشكل اللي يحتاجه */
+async function resourceColumnsList(){
+  const { data, error } = await sb.from('resource_columns').select('*').order('order', { ascending: true });
+  if(error) throw new Error('تعذّر تحميل أعمدة مصادر التعلم');
+  return { columns: data };
+}
+async function resourceColumnsCreate(p){
+  const key = 'c_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const { data: existing } = await sb.from('resource_columns').select('order').order('order', { ascending: false }).limit(1);
+  const nextOrder = existing && existing.length ? (existing[0].order + 1) : 0;
+  const { data, error } = await sb.from('resource_columns').insert({
+    key, label: p.label, type: p.type || 'text', order: nextOrder
+  }).select().single();
+  if(error) throw new Error('تعذّر إضافة العمود');
+  return { column: data };
+}
+async function resourceColumnsDelete(id){
+  const { error } = await sb.from('resource_columns').delete().eq('id', id);
+  if(error) throw new Error(error.message || 'تعذّر حذف العمود');
+  return { message: 'تم حذف العمود' };
+}
+async function resourcesList(){
+  const { data, error } = await sb.from('resources').select('*').order('createdAt', { ascending: false });
+  if(error) throw new Error('تعذّر تحميل مصادر التعلم');
+  return { resources: data };
+}
+async function resourcesCreate(p){
+  const { data, error } = await sb.from('resources').insert({
+    data: p.data || {}, createdBy: state.currentUser ? state.currentUser.id : null
+  }).select().single();
+  if(error) throw new Error('تعذّر إضافة المصدر');
+  return { resource: data };
+}
+async function resourcesUpdate(id, p){
+  const { data, error } = await sb.from('resources').update({ data: p.data || {} }).eq('id', id).select().single();
+  if(error) throw new Error('تعذّر تحديث المصدر');
+  return { resource: data };
+}
+async function resourcesDelete(id){
+  const { error } = await sb.from('resources').delete().eq('id', id);
+  if(error) throw new Error(error.message || 'تعذّر حذف المصدر');
+  return { message: 'تم حذف المصدر' };
+}
+
+/* الإشعارات — تُنشأ تلقائيًا من قاعدة البيانات (إسناد مهمة / إنذارات تقصير) */
+async function notificationsList(){
+  const { data, error } = await sb.from('notifications').select('*').order('createdAt', { ascending: false }).limit(50);
+  if(error) throw new Error('تعذّر تحميل الإشعارات');
+  return { notifications: data };
+}
+async function notificationsMarkRead(id){
+  const { error } = await sb.from('notifications').update({ isRead: true }).eq('id', id);
+  if(error) throw new Error('تعذّر تحديث الإشعار');
+  return {};
+}
+async function notificationsMarkAllRead(){
+  const { error } = await sb.from('notifications').update({ isRead: true }).eq('userId', state.currentUser.id).eq('isRead', false);
+  if(error) throw new Error('تعذّر تحديث الإشعارات');
+  return {};
+}
+
 /* موجّه بسيط يحافظ على نفس الشكل اللي بقية الكود بيستخدمه (apiFetch(path, options)) */
 async function apiFetch(path, options = {}){
   const method = (options.method || 'GET').toUpperCase();
@@ -892,6 +1052,19 @@ async function apiFetch(path, options = {}){
   if(path === '/messages' && method === 'POST') return messagesSend(body);
   if((m = path.match(/^\/messages\/(\d+)$/)) && method === 'DELETE') return messagesDelete(Number(m[1]));
 
+  if(path === '/resource-columns' && method === 'GET') return resourceColumnsList();
+  if(path === '/resource-columns' && method === 'POST') return resourceColumnsCreate(body);
+  if((m = path.match(/^\/resource-columns\/(\d+)$/)) && method === 'DELETE') return resourceColumnsDelete(Number(m[1]));
+
+  if(path === '/resources' && method === 'GET') return resourcesList();
+  if(path === '/resources' && method === 'POST') return resourcesCreate(body);
+  if((m = path.match(/^\/resources\/(\d+)$/)) && method === 'PUT') return resourcesUpdate(Number(m[1]), body);
+  if((m = path.match(/^\/resources\/(\d+)$/)) && method === 'DELETE') return resourcesDelete(Number(m[1]));
+
+  if(path === '/notifications' && method === 'GET') return notificationsList();
+  if((m = path.match(/^\/notifications\/(\d+)\/read$/)) && method === 'PUT') return notificationsMarkRead(Number(m[1]));
+  if(path === '/notifications/read-all' && method === 'PUT') return notificationsMarkAllRead();
+
   throw new Error('مسار غير مدعوم: ' + path);
 }
 
@@ -905,7 +1078,10 @@ const state = {
   tasks: [],
   reports: [],
   learning: [],
-  messages: []
+  messages: [],
+  resources: [],
+  resourceColumns: [],
+  notifications: []
 };
 
 /* يجلب البيانات المطلوبة لعرض الصفحة الحالية من الباك إند */
@@ -917,7 +1093,10 @@ async function refreshData(){
     apiFetch('/tasks').then(d => { state.tasks = d.tasks || []; }),
     apiFetch('/reports').then(d => { state.reports = d.reports || []; }),
     apiFetch('/learning').then(d => { state.learning = d.learning || []; }),
-    apiFetch('/users').then(d => { state.users = d.users || []; })
+    apiFetch('/users').then(d => { state.users = d.users || []; }),
+    apiFetch('/resource-columns').then(d => { state.resourceColumns = d.columns || []; }),
+    apiFetch('/resources').then(d => { state.resources = d.resources || []; }),
+    apiFetch('/notifications').then(d => { state.notifications = d.notifications || []; }).catch(() => {})
   ];
   await Promise.all(jobs);
   if(isAdmin){
@@ -958,6 +1137,91 @@ function stopPresence(){
 function onVisibilityPingPresence(){
   if(document.visibilityState === 'visible') authHeartbeat().catch(() => {});
 }
+
+/* ============================================================
+   الإشعارات — إسناد مهمة / إنذارات تقصير (4 و5 أيام) / إيقاف عند 6 أيام
+   ============================================================ */
+const NOTIF_META = {
+  task_assigned:       { icon: 'tasks', cls: '' },
+  negligence_warning_4:{ icon: 'reports', cls: 'warn' },
+  negligence_warning_5:{ icon: 'reports', cls: 'danger' },
+  negligence_removed:  { icon: 'ban', cls: 'danger' }
+};
+let notifPollTimer = null;
+function initNotifications(){
+  refreshNotifications();
+  if(notifPollTimer) clearInterval(notifPollTimer);
+  notifPollTimer = setInterval(refreshNotifications, 20000);
+}
+function stopNotifications(){
+  if(notifPollTimer){ clearInterval(notifPollTimer); notifPollTimer = null; }
+}
+async function refreshNotifications(){
+  try {
+    const d = await apiFetch('/notifications');
+    state.notifications = d.notifications || [];
+    renderNotifBell();
+    if($('#notifPanel')?.classList.contains('open')) renderNotifList();
+  } catch (err) { /* فشل هادئ أثناء التحديث الدوري */ }
+}
+function renderNotifBell(){
+  const btn = $('#notifBellBtn');
+  if(!btn) return;
+  const unread = state.notifications.filter(n => !n.isRead).length;
+  btn.innerHTML = ICONS.bell + (unread ? `<span class="notif-bell-dot">${unread > 9 ? '9+' : unread}</span>` : '');
+}
+function notifTimeAgo(iso){
+  if(!iso) return '';
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diffMs / 60000);
+  if(mins < 1) return 'الآن';
+  if(mins < 60) return `منذ ${mins} د`;
+  const hrs = Math.floor(mins / 60);
+  if(hrs < 24) return `منذ ${hrs} س`;
+  return formatDate((new Date(iso)).toISOString().slice(0,10));
+}
+function renderNotifList(){
+  const wrap = $('#notifListWrap');
+  if(!wrap) return;
+  if(!state.notifications.length){
+    wrap.innerHTML = '<div class="notif-empty">لا توجد إشعارات حتى الآن</div>';
+    return;
+  }
+  wrap.innerHTML = state.notifications.map(n => {
+    const meta = NOTIF_META[n.type] || { icon: 'bell', cls: '' };
+    return `
+      <div class="notif-item ${n.isRead ? '' : 'unread'}" data-id="${n.id}">
+        <div class="notif-item-icon ${meta.cls}">${ICONS[meta.icon] || ICONS.bell}</div>
+        <div class="notif-item-body">
+          <div class="notif-item-title">${escapeHtml(n.title)}</div>
+          ${n.body ? `<div class="notif-item-desc">${escapeHtml(n.body)}</div>` : ''}
+          <div class="notif-item-time">${notifTimeAgo(n.createdAt)}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+  $$('.notif-item', wrap).forEach(el => el.addEventListener('click', async () => {
+    const n = state.notifications.find(x => String(x.id) === el.dataset.id);
+    if(n && !n.isRead){
+      n.isRead = true;
+      renderNotifBell();
+      el.classList.remove('unread');
+      try { await apiFetch(`/notifications/${n.id}/read`, { method: 'PUT' }); } catch (err) { /* فشل هادئ */ }
+    }
+  }));
+}
+function toggleNotifPanel(force){
+  const panel = $('#notifPanel');
+  if(!panel) return;
+  const willOpen = force !== undefined ? force : !panel.classList.contains('open');
+  panel.classList.toggle('open', willOpen);
+  if(willOpen) renderNotifList();
+}
+document.addEventListener('click', (e) => {
+  const panel = $('#notifPanel');
+  const bellWrap = e.target.closest('.notif-bell-wrap');
+  if(panel && panel.classList.contains('open') && !bellWrap) toggleNotifPanel(false);
+});
 
 const $ = (sel, ctx) => (ctx||document).querySelector(sel);
 const $$ = (sel, ctx) => Array.from((ctx||document).querySelectorAll(sel));
@@ -1190,6 +1454,7 @@ $('#registerForm').addEventListener('submit', async (e) => {
 async function logout(){
   stopChatPolling();
   stopPresence();
+  stopNotifications();
   await sb.auth.signOut();
   setToken(null);
   state.currentUser = null;
@@ -1198,6 +1463,9 @@ async function logout(){
   state.reports = [];
   state.learning = [];
   state.messages = [];
+  state.resources = [];
+  state.resourceColumns = [];
+  state.notifications = [];
   $('#appScreen').classList.add('hidden');
   $('#authScreen').classList.remove('hidden');
   switchAuthTab('login');
@@ -1224,6 +1492,7 @@ const NAV_ITEMS = [
   {key:'tasks', label:'المهام', icon:'tasks'},
   {key:'reports', label:'التقارير', icon:'reports'},
   {key:'learning', label:'التعليم', icon:'bulb'},
+  {key:'resources', label:'مصادر التعلم', icon:'book'},
   {key:'chat', label:'الشات', icon:'chat'},
   {key:'members', label:'الأعضاء', icon:'members', adminOnly:true},
   {key:'settings', label:'الإعدادات', icon:'settings'}
@@ -1239,6 +1508,7 @@ async function enterApp(showWelcome){
     toast(err.message, 'err');
   }
   startPresence();
+  initNotifications();
   renderSidebar();
   renderTopbar();
   renderPage();
@@ -1323,6 +1593,15 @@ $('#hamburgerBtn').addEventListener('click', () => {
   $('#sidebarOverlay').classList.toggle('show');
 });
 $('#sidebarOverlay').addEventListener('click', closeSidebarMobile);
+
+$('#notifBellBtn').addEventListener('click', (e) => { e.stopPropagation(); toggleNotifPanel(); });
+$('#notifMarkAllBtn').addEventListener('click', async () => {
+  if(!state.notifications.some(n => !n.isRead)) return;
+  state.notifications.forEach(n => n.isRead = true);
+  renderNotifBell();
+  renderNotifList();
+  try { await apiFetch('/notifications/read-all', { method: 'PUT' }); } catch (err) { toast(err.message, 'err'); }
+});
 function closeSidebarMobile(){
   $('#sidebar').classList.remove('open');
   $('#sidebarOverlay').classList.remove('show');
@@ -1334,6 +1613,7 @@ function renderPage(){
   if(state.activePage === 'tasks') content.innerHTML = pageTasks();
   else if(state.activePage === 'reports') content.innerHTML = pageReports();
   else if(state.activePage === 'learning') content.innerHTML = pageLearning();
+  else if(state.activePage === 'resources') content.innerHTML = pageResources();
   else if(state.activePage === 'chat') content.innerHTML = pageChat();
   else if(state.activePage === 'members') content.innerHTML = pageMembers();
   else if(state.activePage === 'settings') content.innerHTML = pageSettings();
@@ -1844,6 +2124,192 @@ $('#learningForm').addEventListener('submit', async (e) => {
 });
 
 /* ============================================================
+   PAGE: مصادر التعلم — مصدر عام يفيد الفريق كله (جدول بأعمدة يبنيها
+   المدير بالشكل اللي يحتاجه)، وكل الأعضاء يشوفوها بشكل قراءة فقط
+   ============================================================ */
+function resColTypeLabel(type){
+  return { text: 'نص', link: 'رابط', date: 'تاريخ', note: 'ملاحظة' }[type] || 'نص';
+}
+
+function pageResources(){
+  const isAdmin = state.currentUser.role === 'admin';
+  const cols = state.resourceColumns.slice().sort((a,b) => a.order - b.order);
+  const rows = state.resources.slice().sort((a,b) => (b.createdAt||'').localeCompare(a.createdAt||''));
+
+  return `
+    <div class="page-head">
+      <div><h1>مصادر التعلم</h1><p>${isAdmin ? 'مصدر مشترك يفيد الفريق كله — ابنِ الأعمدة اللي تحتاجها وأضف البيانات المفيدة' : 'مصادر ومراجع مفيدة أضافها المدير للفريق كله'}</p></div>
+      ${isAdmin ? `<button class="btn btn-primary" id="openResRowModalBtn" ${!cols.length ? 'disabled title="أضف عمودًا واحدًا على الأقل أولًا"' : ''}>${ICONS.plus} إضافة مصدر</button>` : ''}
+    </div>
+
+    ${isAdmin ? `
+    <div class="res-toolbar">
+      <button type="button" class="btn btn-ghost btn-sm" id="openResColModalBtn">${ICONS.plus} إضافة عمود</button>
+    </div>
+    ${cols.length ? `<div class="res-cols-list">${cols.map(c => `
+      <span class="res-col-tag">${escapeHtml(c.label)} <small style="opacity:.6">(${resColTypeLabel(c.type)})</small>
+        <button type="button" class="del-res-col-btn" data-id="${c.id}" title="حذف العمود">${ICONS.x}</button>
+      </span>`).join('')}</div>` : ''}
+    ` : ''}
+
+    <div id="resourcesTableWrap">${renderResourcesTableHtml(cols, rows, isAdmin)}</div>
+  `;
+}
+
+function resCellHtml(col, value){
+  if(value == null || value === '') return '<span style="color:var(--text-400)">—</span>';
+  if(col.type === 'link') return `<a href="${escapeHtml(value)}" target="_blank" rel="noopener">${escapeHtml(value)}</a>`;
+  if(col.type === 'date') return escapeHtml(formatDate(value));
+  return escapeHtml(value);
+}
+
+function renderResourcesTableHtml(cols, rows, isAdmin){
+  if(!cols.length){
+    return emptyState('book', 'لا توجد أعمدة بعد', isAdmin ? 'ابدأ بإضافة أول عمود (مثال: اسم الأداة، رابط، ملاحظات) عشان تقدر تضيف مصادر' : 'لسه المدير مابناش هذا الجدول');
+  }
+  if(!rows.length){
+    return emptyState('book', 'لا توجد مصادر بعد', isAdmin ? 'أضف أول مصدر يفيد الفريق' : 'هيظهر هنا أي مصدر يضيفه المدير');
+  }
+  return `
+    <div class="table-wrap">
+      <table class="res-table">
+        <thead><tr>
+          ${cols.map(c => `<th>${escapeHtml(c.label)}</th>`).join('')}
+          <th>أُضيف بواسطة</th>
+          ${isAdmin ? '<th></th>' : ''}
+        </tr></thead>
+        <tbody>
+          ${rows.map(r => {
+            const author = findUser(r.createdBy);
+            return `<tr>
+              ${cols.map(c => `<td class="res-cell-${c.type === 'note' ? 'note' : 'text'}">${resCellHtml(c, r.data ? r.data[c.key] : null)}</td>`).join('')}
+              <td>${escapeHtml(author ? author.name : '—')}</td>
+              ${isAdmin ? `<td>
+                <div class="row-actions">
+                  <button type="button" class="btn btn-ghost btn-sm edit-res-row-btn" data-id="${r.id}">${ICONS.edit} تعديل</button>
+                  <button type="button" class="btn btn-danger btn-sm del-res-row-btn" data-id="${r.id}">${ICONS.trash} حذف</button>
+                </div>
+              </td>` : ''}
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function openResourceColumnModal(){
+  $('#resColForm').reset();
+  $('#resColModalOverlay').classList.remove('hidden');
+}
+function closeResourceColumnModal(){ $('#resColModalOverlay').classList.add('hidden'); }
+
+function buildResRowFields(existingData){
+  const cols = state.resourceColumns.slice().sort((a,b) => a.order - b.order);
+  return cols.map(c => {
+    const val = existingData ? (existingData[c.key] ?? '') : '';
+    const inputType = c.type === 'link' ? 'url' : (c.type === 'date' ? 'date' : 'text');
+    if(c.type === 'note'){
+      return `<div class="form-row">
+        <label for="resField_${c.key}">${escapeHtml(c.label)}</label>
+        <textarea id="resField_${c.key}" data-key="${c.key}" class="res-field">${escapeHtml(val)}</textarea>
+      </div>`;
+    }
+    return `<div class="form-row">
+      <label for="resField_${c.key}">${escapeHtml(c.label)}</label>
+      <input type="${inputType}" id="resField_${c.key}" data-key="${c.key}" class="res-field" value="${escapeHtml(val)}">
+    </div>`;
+  }).join('');
+}
+
+function openResourceRowModal(id){
+  const row = id ? state.resources.find(r => r.id === id) : null;
+  $('#resRowModalTitle').textContent = row ? 'تعديل المصدر' : 'إضافة مصدر جديد';
+  $('#resRowId').value = row ? row.id : '';
+  $('#resRowFieldsWrap').innerHTML = buildResRowFields(row ? row.data : null);
+  $('#resRowModalOverlay').classList.remove('hidden');
+}
+function closeResourceRowModal(){ $('#resRowModalOverlay').classList.add('hidden'); }
+
+function bindResourcesEvents(){
+  const openColBtn = $('#openResColModalBtn');
+  if(openColBtn) openColBtn.addEventListener('click', openResourceColumnModal);
+
+  const openRowBtn = $('#openResRowModalBtn');
+  if(openRowBtn) openRowBtn.addEventListener('click', () => openResourceRowModal());
+
+  $$('.del-res-col-btn').forEach(btn => btn.addEventListener('click', async () => {
+    if(!confirm('حذف العمود هيشيل بياناته من كل الصفوف كمان. متأكد؟')) return;
+    try {
+      await apiFetch(`/resource-columns/${btn.dataset.id}`, { method: 'DELETE' });
+      await refreshData();
+      renderPage();
+      toast('تم حذف العمود', 'ok');
+    } catch (err) { toast(err.message, 'err'); }
+  }));
+
+  $$('.edit-res-row-btn').forEach(btn => btn.addEventListener('click', () => openResourceRowModal(Number(btn.dataset.id))));
+
+  $$('.del-res-row-btn').forEach(btn => btn.addEventListener('click', async () => {
+    if(!confirm('هل تريد حذف هذا المصدر؟')) return;
+    try {
+      await apiFetch(`/resources/${btn.dataset.id}`, { method: 'DELETE' });
+      await refreshData();
+      renderPage();
+      toast('تم حذف المصدر', 'ok');
+    } catch (err) { toast(err.message, 'err'); }
+  }));
+}
+
+$('#resColModalClose').addEventListener('click', closeResourceColumnModal);
+$('#resColCancelBtn').addEventListener('click', closeResourceColumnModal);
+$('#resColModalOverlay').addEventListener('click', (e) => { if(e.target.id === 'resColModalOverlay') closeResourceColumnModal(); });
+
+$('#resColForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const payload = { label: $('#resColLabel').value.trim(), type: $('#resColType').value };
+  if(!payload.label) return;
+  setFormBusy(form, true);
+  try {
+    await apiFetch('/resource-columns', { method: 'POST', body: JSON.stringify(payload) });
+    toast('تمت إضافة العمود', 'ok');
+    closeResourceColumnModal();
+    await refreshData();
+    renderPage();
+  } catch (err) {
+    toast(err.message, 'err');
+  } finally {
+    setFormBusy(form, false);
+  }
+});
+
+$('#resRowModalClose').addEventListener('click', closeResourceRowModal);
+$('#resRowCancelBtn').addEventListener('click', closeResourceRowModal);
+$('#resRowModalOverlay').addEventListener('click', (e) => { if(e.target.id === 'resRowModalOverlay') closeResourceRowModal(); });
+
+$('#resRowForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const data = {};
+  $$('.res-field', form).forEach(f => { data[f.dataset.key] = f.value.trim(); });
+  const id = $('#resRowId').value;
+  setFormBusy(form, true);
+  try {
+    if(id) await apiFetch(`/resources/${id}`, { method: 'PUT', body: JSON.stringify({ data }) });
+    else await apiFetch('/resources', { method: 'POST', body: JSON.stringify({ data }) });
+    toast(id ? 'تم تحديث المصدر' : 'تمت إضافة المصدر', 'ok');
+    closeResourceRowModal();
+    await refreshData();
+    renderPage();
+  } catch (err) {
+    toast(err.message, 'err');
+  } finally {
+    setFormBusy(form, false);
+  }
+});
+
+/* ============================================================
    PAGE: الشات — قناة "الفريق كله" + رسائل خاصة بين عضوين
    ============================================================ */
 let chatSelectedTarget = 'team'; // 'team' أو رقم (كنص) لعضو معيّن
@@ -1909,7 +2375,8 @@ function renderChatMessages(){
     const isMe = m.senderId === meId;
     const author = findUser(m.senderId);
     return `
-      <div class="chat-bubble ${isMe ? 'me' : 'other'}">
+      <div class="chat-bubble ${isMe ? 'me' : 'other'}" data-id="${m.id}">
+        ${isMe ? `<button type="button" class="chat-bubble-del" data-id="${m.id}" title="حذف الرسالة (تُحذف عند الطرفين)">${ICONS.trash}</button>` : ''}
         ${!isMe ? `<div class="chat-bubble-meta">${escapeHtml(author ? author.name : 'مستخدم محذوف')}</div>` : ''}
         <div>${escapeHtml(m.content)}</div>
       </div>
@@ -1937,6 +2404,22 @@ function bindChatEvents(){
   loadMessages();
   stopChatPolling();
   chatPollTimer = setInterval(loadMessages, 4000);
+
+  // حذف رسالة (بتحذفها من قاعدة البيانات فعليًا، فتختفي عند الطرفين مباشرة) — تفويض
+  // للحدث على الحاوية عشان يفضل شغال حتى بعد إعادة رسم الرسائل كل 4 ثواني
+  const wrap = $('#chatMessagesWrap');
+  if(wrap) wrap.addEventListener('click', async (e) => {
+    const btn = e.target.closest('.chat-bubble-del');
+    if(!btn) return;
+    if(!confirm('حذف الرسالة؟ هتتشال عند الطرفين.')) return;
+    try {
+      await apiFetch(`/messages/${btn.dataset.id}`, { method: 'DELETE' });
+      state.messages = state.messages.filter(m => String(m.id) !== btn.dataset.id);
+      renderChatMessages();
+    } catch (err) {
+      toast(err.message, 'err');
+    }
+  });
 
   const form = $('#chatSendForm');
   if(form) form.addEventListener('submit', async (e) => {
@@ -2098,6 +2581,7 @@ function bindPageEvents(){
   if(state.activePage === 'tasks') bindTasksEvents();
   if(state.activePage === 'reports') bindReportsEvents();
   if(state.activePage === 'learning') bindLearningEvents();
+  if(state.activePage === 'resources') bindResourcesEvents();
   if(state.activePage === 'chat') bindChatEvents();
   if(state.activePage === 'members') bindMembersEvents();
   if(state.activePage === 'settings') bindSettingsEvents();
