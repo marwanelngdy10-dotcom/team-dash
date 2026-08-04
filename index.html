@@ -1,0 +1,1420 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IT_qan — منصة إدارة الفريق</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Almarai:wght@400;700;800&family=Tajawal:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --navy-950:#0B1226;
+    --navy-900:#111C36;
+    --navy-800:#182648;
+    --navy-700:#22315C;
+    --amber-500:#E7A33E;
+    --amber-600:#CE8B27;
+    --amber-100:#FCEEDA;
+    --bg:#F2F4FA;
+    --surface:#FFFFFF;
+    --border:#E4E8F1;
+    --text-900:#141A2E;
+    --text-600:#5B6480;
+    --text-400:#95A0BE;
+    --green-500:#1E9D6B;
+    --green-100:#DFF6EB;
+    --red-500:#DE4D4D;
+    --red-100:#FBE4E4;
+    --radius-lg:18px;
+    --radius-md:12px;
+    --radius-sm:8px;
+    --shadow-sm:0 1px 2px rgba(15,23,52,.06);
+    --shadow-md:0 8px 24px rgba(15,23,52,.10);
+    --shadow-lg:0 20px 50px rgba(15,23,52,.18);
+  }
+  *,*::before,*::after{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    margin:0;
+    font-family:'Tajawal',sans-serif;
+    background:var(--bg);
+    color:var(--text-900);
+    -webkit-font-smoothing:antialiased;
+  }
+  h1,h2,h3,.brand-title,.stat-num{font-family:'Almarai',sans-serif;}
+  button{font-family:inherit;}
+  a{color:inherit;}
+  img{max-width:100%;display:block;}
+  input,select,textarea{font-family:inherit;}
+  :focus-visible{outline:3px solid var(--amber-500);outline-offset:2px;}
+  @media (prefers-reduced-motion: reduce){
+    *{animation-duration:.001ms !important; transition-duration:.001ms !important;}
+  }
+
+  /* ===== utility ===== */
+  .hidden{display:none !important;}
+  .btn{
+    display:inline-flex; align-items:center; gap:8px; justify-content:center;
+    padding:11px 18px; border-radius:var(--radius-sm); border:1px solid transparent;
+    font-size:14px; font-weight:700; cursor:pointer; transition:.15s ease; white-space:nowrap;
+  }
+  .btn-primary{background:var(--navy-900); color:#fff;}
+  .btn-primary:hover{background:var(--navy-800); transform:translateY(-1px); box-shadow:var(--shadow-sm);}
+  .btn-amber{background:var(--amber-500); color:var(--navy-950);}
+  .btn-amber:hover{background:var(--amber-600); transform:translateY(-1px);}
+  .btn-ghost{background:transparent; color:var(--text-600); border-color:var(--border);}
+  .btn-ghost:hover{background:var(--bg); color:var(--text-900);}
+  .btn-danger{background:var(--red-100); color:var(--red-500);}
+  .btn-danger:hover{background:var(--red-500); color:#fff;}
+  .btn-sm{padding:7px 12px; font-size:12.5px; border-radius:7px;}
+  .btn-icon{padding:9px; border-radius:var(--radius-sm);}
+  .icon{width:18px; height:18px; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; flex-shrink:0;}
+  .icon-sm{width:14px;height:14px;}
+
+  .badge{display:inline-flex; align-items:center; gap:6px; padding:5px 12px; border-radius:99px; font-size:12px; font-weight:700; position:relative;}
+  .badge::before{content:''; width:6px; height:6px; border-radius:50%; background:currentColor;}
+  .badge-green{background:var(--green-100); color:var(--green-500);}
+  .badge-amber{background:var(--amber-100); color:var(--amber-600);}
+  .badge-red{background:var(--red-100); color:var(--red-500);}
+  .badge-grey{background:#EEF0F6; color:var(--text-600);}
+  .badge-navy{background:var(--navy-800); color:#fff;}
+
+  .card{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); box-shadow:var(--shadow-sm);}
+  .form-row{display:flex; flex-direction:column; gap:6px; margin-bottom:16px;}
+  .form-row label{font-size:13px; font-weight:700; color:var(--text-600);}
+  .form-row input[type=text], .form-row input[type=email], .form-row input[type=password], .form-row input[type=date], .form-row select, .form-row textarea{
+    padding:11px 13px; border:1.5px solid var(--border); border-radius:var(--radius-sm); font-size:14.5px; background:#fff; color:var(--text-900); width:100%; transition:.15s;
+  }
+  .form-row input:focus, .form-row select:focus, .form-row textarea:focus{border-color:var(--amber-500);}
+  .form-row textarea{resize:vertical; min-height:90px;}
+  .pwd-field{position:relative;}
+  .pwd-field input{padding-left:42px !important;}
+  .pwd-toggle{position:absolute; left:8px; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer; color:var(--text-400); padding:6px; display:flex;}
+  .pwd-toggle:hover{color:var(--text-900);}
+
+  /* ===== AUTH ===== */
+  .auth-wrap{min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; background:radial-gradient(circle at 15% 15%, #16214a 0%, var(--navy-950) 55%);}
+  .auth-card{display:flex; width:100%; max-width:920px; min-height:560px; background:var(--surface); border-radius:24px; overflow:hidden; box-shadow:var(--shadow-lg);}
+  .auth-side{flex:1; background:linear-gradient(160deg, var(--navy-900), var(--navy-950)); color:#fff; padding:48px 40px; display:flex; flex-direction:column; justify-content:space-between; position:relative; overflow:hidden;}
+  .auth-side .rings{position:absolute; inset:auto -60px -60px auto; opacity:.9;}
+  .brand-mark{display:flex; align-items:center; gap:10px; font-weight:800; font-size:20px;}
+  .brand-mark .dot{width:12px; height:12px; border-radius:4px; background:var(--amber-500); transform:rotate(45deg);}
+  .auth-headline{font-family:'Almarai',sans-serif; font-weight:800; font-size:30px; line-height:1.5; margin:26px 0 10px;}
+  .auth-sub{color:#B9C1DE; font-size:14.5px; line-height:1.9; max-width:340px;}
+  .auth-legend{display:flex; flex-direction:column; gap:10px; font-size:13px; color:#DCE1F2; position:relative; z-index:2;}
+  .auth-legend span{display:flex; align-items:center; gap:8px;}
+  .auth-legend i{width:8px; height:8px; border-radius:2px; display:inline-block;}
+  .auth-form-side{flex:1; padding:44px 44px; display:flex; flex-direction:column;}
+  .auth-tabs{display:flex; background:var(--bg); border-radius:var(--radius-sm); padding:4px; margin-bottom:28px;}
+  .auth-tab{flex:1; text-align:center; padding:10px; border-radius:7px; font-weight:700; font-size:14px; cursor:pointer; color:var(--text-600); border:none; background:transparent;}
+  .auth-tab.active{background:var(--surface); color:var(--navy-950); box-shadow:var(--shadow-sm);}
+  .auth-form-title{font-size:20px; font-weight:800; margin:0 0 4px; font-family:'Almarai',sans-serif;}
+  .auth-form-desc{color:var(--text-600); font-size:13.5px; margin:0 0 22px;}
+  .demo-hint{margin-top:auto; padding-top:16px; border-top:1px dashed var(--border); font-size:12px; color:var(--text-400); line-height:1.8;}
+  .demo-hint b{color:var(--text-600);}
+  .form-msg{font-size:13px; padding:10px 12px; border-radius:8px; margin-bottom:14px;}
+  .form-msg.ok{background:var(--green-100); color:var(--green-500);}
+  .form-msg.err{background:var(--red-100); color:var(--red-500);}
+
+  /* ===== APP SHELL ===== */
+  .app-shell{display:flex; min-height:100vh;}
+  .sidebar{
+    width:250px; flex-shrink:0; background:var(--navy-950); color:#fff; display:flex; flex-direction:column;
+    padding:22px 16px; position:fixed; top:0; bottom:0; right:0; z-index:40; transition:transform .25s ease;
+  }
+  .sidebar .brand-mark{padding:0 8px 22px; border-bottom:1px solid rgba(255,255,255,.08); margin-bottom:18px;}
+  .nav-list{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:4px; flex:1;}
+  .nav-item{display:flex; align-items:center; gap:12px; padding:11px 12px; border-radius:10px; color:#AEB7D6; font-size:14.5px; font-weight:700; cursor:pointer; transition:.15s; border:none; background:none; width:100%; text-align:right;}
+  .nav-item:hover{background:rgba(255,255,255,.06); color:#fff;}
+  .nav-item.active{background:var(--amber-500); color:var(--navy-950);}
+  .nav-item .icon{width:18px;height:18px;}
+  .sidebar-foot{border-top:1px solid rgba(255,255,255,.08); padding-top:14px; margin-top:10px;}
+  .logout-btn{width:100%; justify-content:flex-start; background:rgba(222,77,77,.12); color:#F3A9A9;}
+  .logout-btn:hover{background:var(--red-500); color:#fff;}
+
+  .app-main{flex:1; margin-right:250px; display:flex; flex-direction:column; min-height:100vh;}
+  .topbar{height:70px; background:var(--surface); border-bottom:1px solid var(--border); display:flex; align-items:center; gap:16px; padding:0 26px; position:sticky; top:0; z-index:20;}
+  .hamburger{display:none; background:none; border:none; cursor:pointer; color:var(--text-900); padding:6px;}
+  .page-title-top{font-size:19px; font-weight:800; font-family:'Almarai',sans-serif;}
+  .topbar-spacer{flex:1;}
+  .user-chip{display:flex; align-items:center; gap:10px; padding:6px 10px 6px 14px; border-radius:99px; background:var(--bg); cursor:default;}
+  .avatar{width:36px; height:36px; border-radius:50%; background:var(--amber-500); color:var(--navy-950); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:14px; overflow:hidden; flex-shrink:0;}
+  .avatar img{width:100%; height:100%; object-fit:cover;}
+  .user-chip-info{line-height:1.3;}
+  .user-chip-name{font-size:13.5px; font-weight:700;}
+  .user-chip-role{font-size:11px; color:var(--text-600);}
+  .sidebar-overlay{position:fixed; inset:0; background:rgba(10,15,30,.5); z-index:30; display:none;}
+  .sidebar-overlay.show{display:block;}
+
+  .page-content{padding:26px; max-width:1180px; width:100%; margin:0 auto; animation:fadeIn .35s ease;}
+  @keyframes fadeIn{from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:translateY(0);}}
+  .page-head{display:flex; align-items:flex-end; justify-content:space-between; gap:14px; margin-bottom:22px; flex-wrap:wrap;}
+  .page-head h1{font-size:24px; margin:0 0 4px;}
+  .page-head p{margin:0; color:var(--text-600); font-size:14px;}
+
+  .stat-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:14px; margin-bottom:24px;}
+  .stat-card{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md); padding:16px 18px;}
+  .stat-num{font-size:26px; font-weight:800;}
+  .stat-label{font-size:12.5px; color:var(--text-600); margin-top:2px;}
+
+  .grid-cards{display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:16px;}
+  .task-card{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md); padding:18px; display:flex; flex-direction:column; gap:10px; transition:.15s;}
+  .task-card:hover{box-shadow:var(--shadow-md); transform:translateY(-2px);}
+  .task-top{display:flex; justify-content:space-between; align-items:flex-start; gap:10px;}
+  .task-title{font-weight:800; font-size:15.5px; line-height:1.4;}
+  .task-desc{font-size:13.5px; color:var(--text-600); line-height:1.7;}
+  .task-meta{display:flex; flex-wrap:wrap; gap:8px; align-items:center; font-size:12px; color:var(--text-600);}
+  .task-actions{display:flex; gap:8px; margin-top:auto; padding-top:8px; border-top:1px solid var(--border); align-items:center; flex-wrap:wrap;}
+  .task-actions select{border:1.5px solid var(--border); border-radius:7px; padding:7px 8px; font-size:12.5px; background:#fff;}
+  .overdue{color:var(--red-500); font-weight:700;}
+  .empty-state{text-align:center; padding:60px 20px; color:var(--text-400);}
+  .empty-state .icon{width:44px; height:44px; margin:0 auto 12px; opacity:.6;}
+  .empty-state h3{color:var(--text-600); font-size:15px; margin:0 0 4px;}
+  .empty-state p{font-size:13px; margin:0;}
+
+  table{width:100%; border-collapse:collapse; font-size:13.5px;}
+  thead th{text-align:right; padding:12px 14px; background:var(--bg); color:var(--text-600); font-size:12px; font-weight:700; border-bottom:1px solid var(--border); white-space:nowrap;}
+  tbody td{padding:13px 14px; border-bottom:1px solid var(--border); vertical-align:middle;}
+  tbody tr:last-child td{border-bottom:none;}
+  tbody tr:hover{background:#FAFBFE;}
+  .table-wrap{overflow-x:auto; border:1px solid var(--border); border-radius:var(--radius-md);}
+  .table-wrap table{min-width:640px;}
+  .cell-user{display:flex; align-items:center; gap:10px;}
+  .row-actions{display:flex; gap:6px;}
+
+  .section-title{font-size:16px; font-weight:800; margin:0 0 14px; display:flex; align-items:center; gap:8px;}
+  .section-block{margin-bottom:28px;}
+
+  .status-pills{display:flex; gap:8px; flex-wrap:wrap;}
+  .status-pill{flex:1; min-width:140px; border:1.5px solid var(--border); border-radius:var(--radius-sm); padding:12px; text-align:center; cursor:pointer; font-weight:700; font-size:13px; color:var(--text-600); transition:.15s; background:#fff;}
+  .status-pill:hover{border-color:var(--text-400);}
+  .status-pill.picked-green{border-color:var(--green-500); background:var(--green-100); color:var(--green-500);}
+  .status-pill.picked-amber{border-color:var(--amber-500); background:var(--amber-100); color:var(--amber-600);}
+  .status-pill.picked-red{border-color:var(--red-500); background:var(--red-100); color:var(--red-500);}
+
+  .timeline{display:flex; flex-direction:column; gap:14px;}
+  .timeline-item{background:var(--surface); border:1px solid var(--border); border-left:4px solid var(--border); border-radius:var(--radius-md); padding:16px 18px;}
+  .timeline-item.tl-green{border-left-color:var(--green-500);}
+  .timeline-item.tl-amber{border-left-color:var(--amber-500);}
+  .timeline-item.tl-red{border-left-color:var(--red-500);}
+  .tl-head{display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:8px; flex-wrap:wrap;}
+  .tl-date{font-size:12px; color:var(--text-400); font-weight:700;}
+  .tl-desc{font-size:13.5px; color:var(--text-900); line-height:1.8;}
+  .tl-task{font-size:12px; color:var(--text-600); margin-top:6px;}
+
+  .bar-row{display:flex; align-items:center; gap:12px; margin-bottom:12px; font-size:13px;}
+  .bar-label{width:120px; flex-shrink:0; color:var(--text-600); font-weight:700;}
+  .bar-track{flex:1; height:10px; background:var(--bg); border-radius:99px; overflow:hidden;}
+  .bar-fill{height:100%; border-radius:99px;}
+  .bar-val{width:34px; text-align:left; font-weight:700; color:var(--text-600); font-size:12px;}
+
+  .toast-container{position:fixed; bottom:22px; left:50%; transform:translateX(-50%); z-index:200; display:flex; flex-direction:column; gap:8px; align-items:center;}
+  .toast{background:var(--navy-950); color:#fff; padding:12px 20px; border-radius:99px; font-size:13.5px; font-weight:700; box-shadow:var(--shadow-lg); display:flex; align-items:center; gap:8px; animation:toastIn .25s ease;}
+  .toast.ok{background:var(--green-500);}
+  .toast.err{background:var(--red-500);}
+  @keyframes toastIn{from{opacity:0; transform:translateY(10px);} to{opacity:1; transform:translateY(0);}}
+
+  .modal-overlay{position:fixed; inset:0; background:rgba(10,15,30,.55); display:flex; align-items:center; justify-content:center; z-index:100; padding:20px;}
+  .modal{background:#fff; border-radius:var(--radius-lg); width:100%; max-width:480px; max-height:90vh; overflow-y:auto; box-shadow:var(--shadow-lg); animation:fadeIn .2s ease;}
+  .modal-head{display:flex; justify-content:space-between; align-items:center; padding:20px 22px; border-bottom:1px solid var(--border);}
+  .modal-head h3{margin:0; font-size:17px;}
+  .modal-body{padding:22px;}
+  .modal-close{background:var(--bg); border:none; border-radius:8px; padding:7px; cursor:pointer; color:var(--text-600);}
+  .modal-foot{display:flex; gap:10px; justify-content:flex-end; margin-top:6px;}
+
+  .approval-card{display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 16px; border:1px solid var(--border); border-radius:var(--radius-md); background:#fff; flex-wrap:wrap; margin-bottom:10px;}
+  .approval-info{display:flex; align-items:center; gap:12px;}
+  .approval-meta{font-size:12px; color:var(--text-400);}
+
+  .settings-grid{display:grid; grid-template-columns:1fr 1fr; gap:20px;}
+  @media (max-width:760px){.settings-grid{grid-template-columns:1fr;}}
+  .settings-card{padding:24px;}
+  .avatar-lg{width:88px; height:88px; border-radius:50%; background:var(--amber-500); color:var(--navy-950); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:30px; overflow:hidden; margin:0 auto 14px;}
+  .avatar-lg img{width:100%; height:100%; object-fit:cover;}
+  .avatar-edit{text-align:center;}
+
+  @media (max-width:900px){
+    .sidebar{transform:translateX(100%);}
+    .sidebar.open{transform:translateX(0);}
+    .app-main{margin-right:0;}
+    .hamburger{display:flex;}
+    .auth-side{display:none;}
+    .auth-card{max-width:440px;}
+  }
+  @media (max-width:520px){
+    .auth-form-side{padding:32px 22px;}
+    .page-content{padding:16px;}
+    .topbar{padding:0 16px;}
+  }
+</style>
+</head>
+<body>
+
+<div id="toastContainer" class="toast-container" aria-live="polite"></div>
+
+<!-- ============ SESSION CHECK OVERLAY ============ -->
+<div id="sessionCheckOverlay" style="position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:999;flex-direction:column;gap:14px;">
+  <div style="width:38px;height:38px;border:3px solid var(--border);border-top-color:var(--amber-500);border-radius:50%;animation:spin .8s linear infinite;"></div>
+  <div style="color:var(--text-600);font-size:14px;">جاري التحقق من الجلسة...</div>
+</div>
+<style>@keyframes spin{to{transform:rotate(360deg);}}</style>
+
+<!-- ============ AUTH SCREEN ============ -->
+<div id="authScreen" class="auth-wrap">
+  <div class="auth-card">
+    <div class="auth-side">
+      <div>
+        <div class="brand-mark"><span class="dot"></span> IT-qan</div>
+        <div class="auth-headline">تابع تعلّم فريقك<br>ونظّم مهامه في مكان واحد</div>
+        <div class="auth-sub">منصة داخلية لإدارة المهام والتقارير اليومية، مع تتبّع دقيق لكل عضو ومدير.</div>
+      </div>
+      <div class="auth-legend">
+        <span><i style="background:var(--green-500)"></i> تم التعلم</span>
+        <span><i style="background:var(--amber-500)"></i> يتم التعلم</span>
+        <span><i style="background:var(--red-500)"></i> لن يتم التعلم</span>
+      </div>
+      <svg class="rings" width="220" height="220" viewBox="0 0 220 220" fill="none">
+        <circle cx="150" cy="150" r="95" stroke="#2A3A66" stroke-width="18"/>
+        <circle cx="150" cy="150" r="95" stroke="#1E9D6B" stroke-width="18" stroke-dasharray="597" stroke-dashoffset="380" stroke-linecap="round"/>
+        <circle cx="150" cy="150" r="65" stroke="#22315C" stroke-width="14"/>
+        <circle cx="150" cy="150" r="65" stroke="#E7A33E" stroke-width="14" stroke-dasharray="408" stroke-dashoffset="300" stroke-linecap="round"/>
+      </svg>
+    </div>
+
+    <div class="auth-form-side">
+      <div class="auth-tabs">
+        <button type="button" class="auth-tab active" id="tabLoginBtn">تسجيل الدخول</button>
+        <button type="button" class="auth-tab" id="tabRegisterBtn">حساب جديد</button>
+      </div>
+
+      <!-- LOGIN -->
+      <form id="loginForm" novalidate>
+        <h2 class="auth-form-title">مرحبًا بعودتك</h2>
+        <p class="auth-form-desc">سجّل الدخول للمتابعة إلى لوحة الفريق</p>
+        <div id="loginMsg"></div>
+        <div class="form-row">
+          <label for="loginEmail">البريد الإلكتروني</label>
+          <input type="email" id="loginEmail" required placeholder="name@company.com" autocomplete="username">
+        </div>
+        <div class="form-row">
+          <label for="loginPassword">كلمة المرور</label>
+          <div class="pwd-field">
+            <input type="password" id="loginPassword" required placeholder="••••••••" autocomplete="current-password">
+            <button type="button" class="pwd-toggle" data-target="loginPassword" aria-label="إظهار كلمة المرور"></button>
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary" style="width:100%; padding:13px;">دخول</button>
+        <div class="demo-hint">
+         
+        </div>
+      </form>
+
+      <!-- REGISTER -->
+      <form id="registerForm" class="hidden" novalidate>
+        <h2 class="auth-form-title">إنشاء حساب جديد</h2>
+        <p class="auth-form-desc">سيُعرض طلبك على المدير للموافقة قبل تفعيله</p>
+        <div id="registerMsg"></div>
+        <div class="form-row">
+          <label for="regName">الاسم الكامل</label>
+          <input type="text" id="regName" required placeholder="مثال: محمد أحمد">
+        </div>
+        <div class="form-row">
+          <label for="regEmail">البريد الإلكتروني</label>
+          <input type="email" id="regEmail" required placeholder="name@company.com" autocomplete="username">
+        </div>
+        <div class="form-row">
+          <label for="regPassword">كلمة المرور</label>
+          <div class="pwd-field">
+            <input type="password" id="regPassword" required placeholder="8 أحرف على الأقل" autocomplete="new-password">
+            <button type="button" class="pwd-toggle" data-target="regPassword" aria-label="إظهار كلمة المرور"></button>
+          </div>
+        </div>
+        <div class="form-row">
+          <label for="regPassword2">تأكيد كلمة المرور</label>
+          <div class="pwd-field">
+            <input type="password" id="regPassword2" required placeholder="أعد كتابة كلمة المرور" autocomplete="new-password">
+            <button type="button" class="pwd-toggle" data-target="regPassword2" aria-label="إظهار كلمة المرور"></button>
+          </div>
+        </div>
+        <button type="submit" class="btn btn-amber" style="width:100%; padding:13px;">إرسال طلب الانضمام</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ============ APP SHELL ============ -->
+<div id="appScreen" class="app-shell hidden">
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <aside class="sidebar" id="sidebar">
+    <div class="brand-mark"><span class="dot"></span> TeamFlow</div>
+    <ul class="nav-list" id="navList"></ul>
+    <div class="sidebar-foot">
+      <button class="nav-item logout-btn" id="logoutBtn"></button>
+    </div>
+  </aside>
+
+  <div class="app-main">
+    <header class="topbar">
+      <button class="hamburger" id="hamburgerBtn" aria-label="فتح القائمة"></button>
+      <div class="page-title-top" id="pageTitleTop">المهام</div>
+      <div class="topbar-spacer"></div>
+      <div class="user-chip" id="userChip"></div>
+    </header>
+    <main class="page-content" id="pageContent"></main>
+  </div>
+</div>
+
+<!-- ============ TASK MODAL ============ -->
+<div class="modal-overlay hidden" id="taskModalOverlay">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="taskModalTitle">مهمة جديدة</h3>
+      <button class="modal-close" id="taskModalClose"></button>
+    </div>
+    <div class="modal-body">
+      <form id="taskForm">
+        <input type="hidden" id="taskId">
+        <div class="form-row">
+          <label for="taskTitle">عنوان المهمة</label>
+          <input type="text" id="taskTitle" required placeholder="مثال: إعداد تقرير الأداء">
+        </div>
+        <div class="form-row">
+          <label for="taskDesc">الوصف</label>
+          <textarea id="taskDesc" placeholder="تفاصيل المهمة..."></textarea>
+        </div>
+        <div class="form-row">
+          <label for="taskAssignee">إسناد إلى</label>
+          <select id="taskAssignee" required></select>
+        </div>
+        <div style="display:flex; gap:14px;">
+          <div class="form-row" style="flex:1;">
+            <label for="taskPriority">الأولوية</label>
+            <select id="taskPriority">
+              <option value="منخفضة">منخفضة</option>
+              <option value="متوسطة" selected>متوسطة</option>
+              <option value="عالية">عالية</option>
+            </select>
+          </div>
+          <div class="form-row" style="flex:1;">
+            <label for="taskDue">تاريخ الاستحقاق</label>
+            <input type="date" id="taskDue" required>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button type="button" class="btn btn-ghost" id="taskCancelBtn">إلغاء</button>
+          <button type="submit" class="btn btn-primary">حفظ المهمة</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ============ MEMBER MODAL ============ -->
+<div class="modal-overlay hidden" id="memberModalOverlay">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>إضافة عضو جديد</h3>
+      <button class="modal-close" id="memberModalClose"></button>
+    </div>
+    <div class="modal-body">
+      <form id="memberForm">
+        <div class="form-row">
+          <label for="memName">الاسم الكامل</label>
+          <input type="text" id="memName" required>
+        </div>
+        <div class="form-row">
+          <label for="memEmail">البريد الإلكتروني</label>
+          <input type="email" id="memEmail" required>
+        </div>
+        <div class="form-row">
+          <label for="memPassword">كلمة مرور مبدئية</label>
+          <div class="pwd-field">
+            <input type="password" id="memPassword" required minlength="6">
+            <button type="button" class="pwd-toggle" data-target="memPassword" aria-label="إظهار كلمة المرور"></button>
+          </div>
+        </div>
+        <div class="form-row">
+          <label for="memRole">الصلاحية</label>
+          <select id="memRole">
+            <option value="member" selected>عضو</option>
+            <option value="admin">مدير</option>
+          </select>
+        </div>
+        <div class="modal-foot">
+          <button type="button" class="btn btn-ghost" id="memberCancelBtn">إلغاء</button>
+          <button type="submit" class="btn btn-primary">إضافة العضو</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+"use strict";
+
+/* ============================================================
+   ICONS — مجموعة أيقونات SVG بسيطة (خطوط) بدون مكتبات خارجية
+   ============================================================ */
+const ICONS = {
+  tasks:`<svg class="icon" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><line x1="8" y1="8" x2="16" y2="8"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="16" x2="13" y2="16"/></svg>`,
+  reports:`<svg class="icon" viewBox="0 0 24 24"><path d="M6 21V9"/><path d="M12 21V4"/><path d="M18 21v-6"/><line x1="3" y1="21" x2="21" y2="21"/></svg>`,
+  members:`<svg class="icon" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.6 2.7-6 6-6s6 2.4 6 6"/><circle cx="17.5" cy="8.5" r="2.3"/><path d="M15.6 14.3c2.6.3 4.4 2.4 4.4 5.7"/></svg>`,
+  settings:`<svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><circle cx="12" cy="12" r="8.2"/><line x1="12" y1="1.6" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="22.4"/><line x1="3.6" y1="12" x2="1.2" y2="12"/><line x1="22.8" y1="12" x2="20.4" y2="12"/></svg>`,
+  logout:`<svg class="icon" viewBox="0 0 24 24"><path d="M15 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h9"/><line x1="21" y1="12" x2="10" y2="12"/><polyline points="16 7 21 12 16 17"/></svg>`,
+  eye:`<svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M1.5 12S5 5 12 5s10.5 7 10.5 7-3.5 7-10.5 7S1.5 12 1.5 12Z"/><circle cx="12" cy="12" r="3"/></svg>`,
+  eyeOff:`<svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M3 3l18 18"/><path d="M10.6 5.2A10.6 10.6 0 0 1 12 5c7 0 10.5 7 10.5 7a13.4 13.4 0 0 1-3.2 4.1M6.5 6.6C3.4 8.5 1.5 12 1.5 12S5 19 12 19a10.8 10.8 0 0 0 4-.75"/><path d="M9.5 9.7A3 3 0 0 0 12 15a3 3 0 0 0 2.3-1.05"/></svg>`,
+  plus:`<svg class="icon" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
+  edit:`<svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z"/></svg>`,
+  trash:`<svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="4 7 20 7"/><path d="M6 7l1 14h10l1-14"/><path d="M9 7V4h6v3"/></svg>`,
+  check:`<svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>`,
+  x:`<svg class="icon icon-sm" viewBox="0 0 24 24"><line x1="5" y1="5" x2="19" y2="19"/><line x1="19" y1="5" x2="5" y2="19"/></svg>`,
+  camera:`<svg class="icon" viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4Z"/><circle cx="12" cy="13.5" r="3.4"/></svg>`,
+  menu:`<svg class="icon" viewBox="0 0 24 24"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>`,
+  close:`<svg class="icon" viewBox="0 0 24 24"><line x1="5" y1="5" x2="19" y2="19"/><line x1="19" y1="5" x2="5" y2="19"/></svg>`,
+  ban:`<svg class="icon icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><line x1="5.5" y1="5.5" x2="18.5" y2="18.5"/></svg>`,
+  bulb:`<svg class="icon" viewBox="0 0 24 24"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a6.5 6.5 0 0 0-3.8 11.8c.6.45 1.05 1.15 1.15 1.9h5.3c.1-.75.55-1.45 1.15-1.9A6.5 6.5 0 0 0 12 2Z"/></svg>`
+};
+
+/* ============================================================
+   API — اتصال حقيقي بالباك إند (Node.js + Express + SQLite)
+   ============================================================
+   عدّل القيمة التالية إذا كان الباك إند يعمل على عنوان مختلف
+   (مثلًا بعد النشر). يمكن أيضًا ضبطها من الكونسول عبر:
+   localStorage.setItem('teamflow_api_base', 'https://your-api.com/api')
+   ============================================================ */
+const API_BASE = localStorage.getItem('teamflow_api_base') || 'https://pkpeglpoyeeiaobfoqnv.supabase.co/rest/v1/';
+const TOKEN_KEY = 'teamflow_token';
+
+function getToken(){ return localStorage.getItem(TOKEN_KEY); }
+function setToken(token){
+  if(token) localStorage.setItem(TOKEN_KEY, token);
+  else localStorage.removeItem(TOKEN_KEY);
+}
+
+async function apiFetch(path, options = {}){
+  const headers = Object.assign({ 'Content-Type': 'application/json' }, options.headers || {});
+  const token = getToken();
+  if(token) headers['Authorization'] = 'Bearer ' + token;
+
+  let res;
+  try {
+    res = await fetch(API_BASE + path, Object.assign({}, options, { headers }));
+  } catch (networkErr) {
+    throw new Error(`تعذّر الاتصال بالخادم. تأكد من أن الباك إند يعمل على ${API_BASE}`);
+  }
+
+  let data = null;
+  try { data = await res.json(); } catch (e) { /* استجابة بدون محتوى */ }
+
+  if(!res.ok){
+    if(res.status === 401){
+      // جلسة منتهية أو غير صالحة
+      setToken(null);
+    }
+    const err = new Error((data && data.error) || 'حدث خطأ غير متوقع، حاول مرة أخرى');
+    err.status = res.status;
+    throw err;
+  }
+  return data || {};
+}
+
+/* ============================================================
+   DATA — تخزين محلي مؤقت (Cache) يُعبَّأ من الـ API
+   ============================================================ */
+const state = {
+  currentUser: null,
+  activePage: 'tasks',
+  users: [],
+  tasks: [],
+  reports: []
+};
+
+/* يجلب البيانات المطلوبة لعرض الصفحة الحالية من الباك إند */
+async function refreshData(){
+  const isAdmin = state.currentUser && state.currentUser.role === 'admin';
+  const jobs = [
+    apiFetch('/tasks').then(d => { state.tasks = d.tasks || []; }),
+    apiFetch('/reports').then(d => { state.reports = d.reports || []; })
+  ];
+  if(isAdmin){
+    jobs.push(apiFetch('/users').then(d => { state.users = d.users || []; }));
+  }
+  await Promise.all(jobs);
+}
+
+/* ============================================================
+   HELPERS
+   ============================================================ */
+const $ = (sel, ctx) => (ctx||document).querySelector(sel);
+const $$ = (sel, ctx) => Array.from((ctx||document).querySelectorAll(sel));
+const escapeHtml = (str) => String(str==null?'':str).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+
+function todayStr(){
+  const d = new Date();
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function formatDate(iso){
+  if(!iso) return '—';
+  const [y,m,d] = iso.split('-');
+  return `${d}/${m}/${y}`;
+}
+function initials(name){
+  if(!name) return '?';
+  const parts = name.trim().split(/\s+/);
+  return (parts[0][0]||'') + (parts[1]?parts[1][0]:'');
+}
+function findUser(id){ return state.users.find(u => u.id === id); }
+function userTasks(userId){ return state.tasks.filter(t => t.assignedTo === userId); }
+function userReports(userId){ return state.reports.filter(r => r.userId === userId); }
+function negligenceCount(userId){ return state.reports.filter(r => r.userId === userId && r.status === 'لن يتم التعلم').length; }
+
+function statusBadgeClass(status){
+  if(status === 'تم التعلم' || status === 'مكتملة') return 'badge-green';
+  if(status === 'يتم التعلم' || status === 'قيد التنفيذ') return 'badge-amber';
+  if(status === 'لن يتم التعلم' || status === 'متأخرة') return 'badge-red';
+  return 'badge-grey';
+}
+function priorityBadgeClass(p){
+  if(p === 'عالية') return 'badge-red';
+  if(p === 'متوسطة') return 'badge-amber';
+  return 'badge-grey';
+}
+
+function toast(msg, type){
+  const box = document.createElement('div');
+  box.className = 'toast' + (type ? ' '+type : '');
+  box.textContent = msg;
+  $('#toastContainer').appendChild(box);
+  setTimeout(() => box.remove(), 3200);
+}
+
+function avatarHtml(user, size){
+  const cls = size === 'lg' ? 'avatar-lg' : 'avatar';
+  if(user && user.avatar){
+    return `<div class="${cls}"><img src="${user.avatar}" alt="${escapeHtml(user.name)}"></div>`;
+  }
+  return `<div class="${cls}">${escapeHtml(initials(user ? user.name : '?'))}</div>`;
+}
+
+/* ============================================================
+   AUTH — تسجيل الدخول / إنشاء حساب / تسجيل الخروج
+   ============================================================ */
+function initAuthTabs(){
+  $('#tabLoginBtn').addEventListener('click', () => switchAuthTab('login'));
+  $('#tabRegisterBtn').addEventListener('click', () => switchAuthTab('register'));
+}
+function switchAuthTab(which){
+  const isLogin = which === 'login';
+  $('#tabLoginBtn').classList.toggle('active', isLogin);
+  $('#tabRegisterBtn').classList.toggle('active', !isLogin);
+  $('#loginForm').classList.toggle('hidden', !isLogin);
+  $('#registerForm').classList.toggle('hidden', isLogin);
+  $('#loginMsg').innerHTML = '';
+  $('#registerMsg').innerHTML = '';
+}
+
+function showFormMsg(target, text, type){
+  $(target).innerHTML = `<div class="form-msg ${type}">${escapeHtml(text)}</div>`;
+}
+
+function setFormBusy(form, busy){
+  const btn = form.querySelector('button[type="submit"]');
+  if(!btn) return;
+  btn.disabled = busy;
+  if(busy){
+    btn.dataset.originalText = btn.dataset.originalText || btn.textContent;
+    btn.textContent = 'يرجى الانتظار...';
+  } else if(btn.dataset.originalText){
+    btn.textContent = btn.dataset.originalText;
+  }
+}
+
+$('#loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const email = $('#loginEmail').value.trim().toLowerCase();
+  const password = $('#loginPassword').value;
+
+  setFormBusy(form, true);
+  try {
+    const data = await apiFetch('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password })
+    });
+    setToken(data.token);
+    state.currentUser = data.user;
+    form.reset();
+    await enterApp();
+  } catch (err) {
+    showFormMsg('#loginMsg', err.message, 'err');
+  } finally {
+    setFormBusy(form, false);
+  }
+});
+
+$('#registerForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const name = $('#regName').value.trim();
+  const email = $('#regEmail').value.trim().toLowerCase();
+  const pass = $('#regPassword').value;
+  const pass2 = $('#regPassword2').value;
+
+  if(name.length < 3){ showFormMsg('#registerMsg','يرجى كتابة الاسم الكامل.', 'err'); return; }
+  if(pass.length < 6){ showFormMsg('#registerMsg','كلمة المرور يجب ألا تقل عن 6 أحرف.', 'err'); return; }
+  if(pass !== pass2){ showFormMsg('#registerMsg','كلمتا المرور غير متطابقتين.', 'err'); return; }
+
+  setFormBusy(form, true);
+  try {
+    await apiFetch('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ name, email, password: pass })
+    });
+    form.reset();
+    showFormMsg('#registerMsg', 'تم إرسال طلبك بنجاح! سيتم إشعارك بعد موافقة المدير.', 'ok');
+  } catch (err) {
+    showFormMsg('#registerMsg', err.message, 'err');
+  } finally {
+    setFormBusy(form, false);
+  }
+});
+
+function logout(){
+  setToken(null);
+  state.currentUser = null;
+  state.users = [];
+  state.tasks = [];
+  state.reports = [];
+  $('#appScreen').classList.add('hidden');
+  $('#authScreen').classList.remove('hidden');
+  switchAuthTab('login');
+  toast('تم تسجيل الخروج بنجاح');
+}
+
+/* Password show/hide toggles (delegated) */
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.pwd-toggle');
+  if(!btn) return;
+  const input = document.getElementById(btn.dataset.target);
+  if(!input) return;
+  const isPwd = input.type === 'password';
+  input.type = isPwd ? 'text' : 'password';
+  btn.innerHTML = isPwd ? ICONS.eyeOff : ICONS.eye;
+  btn.setAttribute('aria-label', isPwd ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور');
+});
+$$('.pwd-toggle').forEach(btn => btn.innerHTML = ICONS.eye);
+
+/* ============================================================
+   APP SHELL — التنقل والقائمة الجانبية
+   ============================================================ */
+const NAV_ITEMS = [
+  {key:'tasks', label:'المهام', icon:'tasks'},
+  {key:'reports', label:'التقارير', icon:'reports'},
+  {key:'members', label:'الأعضاء', icon:'members', adminOnly:true},
+  {key:'settings', label:'الإعدادات', icon:'settings'}
+];
+
+async function enterApp(showWelcome){
+  $('#authScreen').classList.add('hidden');
+  $('#appScreen').classList.remove('hidden');
+  state.activePage = 'tasks';
+  try {
+    await refreshData();
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+  renderSidebar();
+  renderTopbar();
+  renderPage();
+  if(showWelcome !== false){
+    toast(`أهلًا بك، ${state.currentUser.name.split(' ')[0]} 👋`, 'ok');
+  }
+}
+
+/* استعادة الجلسة تلقائيًا إذا كان هناك توكن محفوظ من زيارة سابقة */
+async function tryRestoreSession(){
+  const token = getToken();
+  if(!token){
+    $('#sessionCheckOverlay').classList.add('hidden');
+    return;
+  }
+  try {
+    const data = await apiFetch('/auth/me');
+    state.currentUser = data.user;
+    await enterApp(false);
+  } catch (err) {
+    setToken(null);
+  } finally {
+    $('#sessionCheckOverlay').classList.add('hidden');
+  }
+}
+
+function renderSidebar(){
+  const isAdmin = state.currentUser.role === 'admin';
+  $('#navList').innerHTML = NAV_ITEMS
+    .filter(item => !item.adminOnly || isAdmin)
+    .map(item => `
+      <li>
+        <button class="nav-item ${state.activePage===item.key?'active':''}" data-page="${item.key}">
+          ${ICONS[item.icon]} <span>${item.label}</span>
+        </button>
+      </li>
+    `).join('');
+
+  $$('#navList .nav-item').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      state.activePage = btn.dataset.page;
+      closeSidebarMobile();
+      renderSidebar();
+      renderTopbar();
+      try { await refreshData(); } catch (err) { toast(err.message, 'err'); }
+      renderPage();
+    });
+  });
+
+  const logoutBtn = $('#logoutBtn');
+  logoutBtn.innerHTML = `${ICONS.logout} <span>تسجيل الخروج</span>`;
+  logoutBtn.onclick = logout;
+}
+
+function renderTopbar(){
+  const item = NAV_ITEMS.find(i => i.key === state.activePage);
+  $('#pageTitleTop').textContent = item ? item.label : '';
+  const u = state.currentUser;
+  $('#userChip').innerHTML = `
+    ${avatarHtml(u)}
+    <div class="user-chip-info">
+      <div class="user-chip-name">${escapeHtml(u.name)}</div>
+      <div class="user-chip-role">${u.role === 'admin' ? 'مدير' : 'عضو'}</div>
+    </div>
+  `;
+  $('#hamburgerBtn').innerHTML = ICONS.menu;
+}
+
+$('#hamburgerBtn').addEventListener('click', () => {
+  $('#sidebar').classList.toggle('open');
+  $('#sidebarOverlay').classList.toggle('show');
+});
+$('#sidebarOverlay').addEventListener('click', closeSidebarMobile);
+function closeSidebarMobile(){
+  $('#sidebar').classList.remove('open');
+  $('#sidebarOverlay').classList.remove('show');
+}
+
+function renderPage(){
+  const content = $('#pageContent');
+  if(state.activePage === 'tasks') content.innerHTML = pageTasks();
+  else if(state.activePage === 'reports') content.innerHTML = pageReports();
+  else if(state.activePage === 'members') content.innerHTML = pageMembers();
+  else if(state.activePage === 'settings') content.innerHTML = pageSettings();
+  bindPageEvents();
+}
+
+/* ============================================================
+   PAGE: المهام
+   ============================================================ */
+function pageTasks(){
+  const isAdmin = state.currentUser.role === 'admin';
+  const list = isAdmin ? state.tasks : userTasks(state.currentUser.id);
+
+  const statsHtml = isAdmin ? `
+    <div class="stat-grid">
+      <div class="stat-card"><div class="stat-num">${state.tasks.length}</div><div class="stat-label">إجمالي المهام</div></div>
+      <div class="stat-card"><div class="stat-num">${state.tasks.filter(t=>t.status==='مكتملة').length}</div><div class="stat-label">مهام مكتملة</div></div>
+      <div class="stat-card"><div class="stat-num">${state.users.filter(u=>u.status==='pending').length}</div><div class="stat-label">طلبات بانتظار الموافقة</div></div>
+      <div class="stat-card"><div class="stat-num">${state.users.filter(u=>u.role==='member' && u.status==='active').length}</div><div class="stat-label">أعضاء نشطون</div></div>
+    </div>` : '';
+
+  const cardsHtml = list.length ? `<div class="grid-cards">${list.map(t => taskCard(t, isAdmin)).join('')}</div>` : emptyState('tasks', 'لا توجد مهام حاليًا', isAdmin ? 'ابدأ بإنشاء أول مهمة لفريقك' : 'لم يتم إسناد مهام لك بعد');
+
+  return `
+    <div class="page-head">
+      <div>
+        <h1>المهام</h1>
+        <p>${isAdmin ? 'إدارة ومتابعة كل مهام الفريق' : `لديك ${userTasks(state.currentUser.id).filter(t=>t.status!=='مكتملة').length} مهمة قيد التنفيذ`}</p>
+      </div>
+      ${isAdmin ? `<button class="btn btn-amber" id="openTaskModalBtn">${ICONS.plus} مهمة جديدة</button>` : ''}
+    </div>
+    ${statsHtml}
+    ${cardsHtml}
+  `;
+}
+
+function taskCard(t, isAdmin){
+  const assignee = findUser(t.assignedTo);
+  const overdue = t.dueDate < todayStr() && t.status !== 'مكتملة';
+  return `
+    <div class="task-card">
+      <div class="task-top">
+        <div class="task-title">${escapeHtml(t.title)}</div>
+        <span class="badge ${priorityBadgeClass(t.priority)}">${t.priority}</span>
+      </div>
+      ${t.description ? `<div class="task-desc">${escapeHtml(t.description)}</div>` : ''}
+      <div class="task-meta">
+        ${isAdmin ? `<span class="cell-user">${avatarHtml(assignee)} ${escapeHtml(assignee ? assignee.name : '—')}</span>` : ''}
+        <span class="${overdue ? 'overdue' : ''}">📅 ${formatDate(t.dueDate)}</span>
+      </div>
+      <div class="task-actions">
+        <span class="badge ${statusBadgeClass(t.status)}">${overdue ? 'متأخرة' : t.status}</span>
+        ${!isAdmin ? `
+          <select class="task-status-select" data-task="${t.id}" aria-label="تحديث حالة المهمة">
+            <option value="قيد التنفيذ" ${t.status==='قيد التنفيذ'?'selected':''}>قيد التنفيذ</option>
+            <option value="مكتملة" ${t.status==='مكتملة'?'selected':''}>مكتملة</option>
+          </select>` : ''}
+        ${isAdmin ? `
+          <button class="btn btn-ghost btn-sm btn-icon edit-task-btn" data-id="${t.id}" aria-label="تعديل">${ICONS.edit}</button>
+          <button class="btn btn-danger btn-sm btn-icon delete-task-btn" data-id="${t.id}" aria-label="حذف">${ICONS.trash}</button>
+        ` : ''}
+      </div>
+    </div>
+  `;
+}
+
+function emptyState(icon, title, desc){
+  return `<div class="empty-state card">${ICONS[icon]}<h3>${title}</h3><p>${desc}</p></div>`;
+}
+
+/* ============================================================
+   PAGE: التقارير
+   ============================================================ */
+let reportPickedStatus = null;
+
+function pageReports(){
+  const isAdmin = state.currentUser.role === 'admin';
+  return isAdmin ? reportsAdminView() : reportsMemberView();
+}
+
+function reportsMemberView(){
+  const myTasks = userTasks(state.currentUser.id);
+  const myReports = userReports(state.currentUser.id).slice().sort((a,b) => b.date.localeCompare(a.date));
+
+  return `
+    <div class="page-head">
+      <div><h1>التقارير</h1><p>سجّل حالة تعلمك اليومية وتابع تقاريرك السابقة</p></div>
+    </div>
+
+    <div class="card" style="padding:22px; margin-bottom:26px;">
+      <h3 class="section-title">${ICONS.bulb} تقرير جديد</h3>
+      <form id="reportForm">
+        <div class="form-row">
+          <label for="reportTask">المهمة المرتبطة (اختياري)</label>
+          <select id="reportTask">
+            <option value="">بدون مهمة محددة</option>
+            ${myTasks.map(t => `<option value="${t.id}">${escapeHtml(t.title)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-row">
+          <label>حالة التعلم</label>
+          <div class="status-pills" id="statusPills">
+            <button type="button" class="status-pill" data-status="تم التعلم" data-cls="picked-green">✅ تم التعلم</button>
+            <button type="button" class="status-pill" data-status="يتم التعلم" data-cls="picked-amber">⏳ يتم التعلم</button>
+            <button type="button" class="status-pill" data-status="لن يتم التعلم" data-cls="picked-red">✖️ لن يتم التعلم</button>
+          </div>
+        </div>
+        <div class="form-row">
+          <label for="reportDesc">وصف ما تم تعلمه</label>
+          <textarea id="reportDesc" required placeholder="اكتب تفاصيل ما تعلمته أو ما واجهته اليوم..."></textarea>
+        </div>
+        <div style="font-size:12px; color:var(--text-400); margin-bottom:14px;">
+          سيتم حفظ التاريخ (${formatDate(todayStr())}) واسم المستخدم (${escapeHtml(state.currentUser.name)}) تلقائيًا.
+        </div>
+        <button type="submit" class="btn btn-primary">حفظ التقرير</button>
+      </form>
+    </div>
+
+    <h3 class="section-title">سجل تقاريري (${myReports.length})</h3>
+    ${myReports.length ? `<div class="timeline">${myReports.map(reportTimelineItem).join('')}</div>` : emptyState('reports','لا توجد تقارير بعد','ابدأ بتسجيل أول تقرير تعلم لك أعلاه')}
+  `;
+}
+
+function reportTimelineItem(r){
+  const cls = r.status === 'تم التعلم' ? 'tl-green' : r.status === 'يتم التعلم' ? 'tl-amber' : 'tl-red';
+  const task = r.taskId ? findUser ? state.tasks.find(t=>t.id===r.taskId) : null : null;
+  return `
+    <div class="timeline-item ${cls}">
+      <div class="tl-head">
+        <span class="badge ${statusBadgeClass(r.status)}">${r.status}</span>
+        <span class="tl-date">${formatDate(r.date)} — ${escapeHtml(r.userName)}</span>
+      </div>
+      <div class="tl-desc">${escapeHtml(r.description)}</div>
+      ${task ? `<div class="tl-task">🔗 مرتبط بمهمة: ${escapeHtml(task.title)}</div>` : ''}
+    </div>
+  `;
+}
+
+function reportsAdminView(){
+  const total = state.reports.length;
+  const counts = {
+    'تم التعلم': state.reports.filter(r=>r.status==='تم التعلم').length,
+    'يتم التعلم': state.reports.filter(r=>r.status==='يتم التعلم').length,
+    'لن يتم التعلم': state.reports.filter(r=>r.status==='لن يتم التعلم').length
+  };
+  const members = state.users.filter(u => u.role === 'member');
+  const negligenceRows = members
+    .map(m => ({name:m.name, id:m.id, count: negligenceCount(m.id)}))
+    .sort((a,b) => b.count - a.count);
+
+  return `
+    <div class="page-head">
+      <div><h1>التقارير</h1><p>مراجعة تقارير التعلم لجميع الأعضاء</p></div>
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat-card"><div class="stat-num">${total}</div><div class="stat-label">إجمالي التقارير</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:var(--green-500)">${counts['تم التعلم']}</div><div class="stat-label">تم التعلم</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:var(--amber-600)">${counts['يتم التعلم']}</div><div class="stat-label">يتم التعلم</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:var(--red-500)">${counts['لن يتم التعلم']}</div><div class="stat-label">لن يتم التعلم</div></div>
+    </div>
+
+    <div class="section-block">
+      <h3 class="section-title">توزيع الحالات</h3>
+      <div class="card" style="padding:20px 22px;">
+        ${barRow('تم التعلم', counts['تم التعلم'], total, 'var(--green-500)')}
+        ${barRow('يتم التعلم', counts['يتم التعلم'], total, 'var(--amber-500)')}
+        ${barRow('لن يتم التعلم', counts['لن يتم التعلم'], total, 'var(--red-500)')}
+      </div>
+    </div>
+
+    <div class="section-block">
+      <h3 class="section-title">عدد مرات التقصير لكل عضو</h3>
+      <p style="color:var(--text-600); font-size:13px; margin-top:-8px;">يُحتسب التقصير عند اختيار حالة "لن يتم التعلم" في التقرير</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>العضو</th><th>عدد مرات التقصير</th><th>الحالة</th></tr></thead>
+          <tbody>
+            ${negligenceRows.map(row => `
+              <tr>
+                <td class="cell-user">${avatarHtml(findUser(row.id))} ${escapeHtml(row.name)}</td>
+                <td><b>${row.count}</b></td>
+                <td><span class="badge ${row.count>=3?'badge-red':row.count>=1?'badge-amber':'badge-green'}">${row.count>=3?'يحتاج متابعة':row.count>=1?'مقبول':'ممتاز'}</span></td>
+              </tr>
+            `).join('') || '<tr><td colspan="3" style="text-align:center;color:var(--text-400);padding:24px;">لا يوجد أعضاء بعد</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="section-block">
+      <h3 class="section-title">كل التقارير</h3>
+      <div class="form-row" style="max-width:260px;">
+        <label for="reportFilterMember">تصفية حسب العضو</label>
+        <select id="reportFilterMember">
+          <option value="all">كل الأعضاء</option>
+          ${members.map(m => `<option value="${m.id}">${escapeHtml(m.name)}</option>`).join('')}
+        </select>
+      </div>
+      <div id="adminReportsList"></div>
+    </div>
+  `;
+}
+
+function barRow(label, val, total, color){
+  const pct = total ? Math.round((val/total)*100) : 0;
+  return `
+    <div class="bar-row">
+      <div class="bar-label">${label}</div>
+      <div class="bar-track"><div class="bar-fill" style="width:${pct}%; background:${color};"></div></div>
+      <div class="bar-val">${val}</div>
+    </div>
+  `;
+}
+
+function renderAdminReportsList(filterId){
+  const filtered = filterId && filterId !== 'all'
+    ? state.reports.filter(r => String(r.userId) === String(filterId))
+    : state.reports;
+  const sorted = filtered.slice().sort((a,b) => b.date.localeCompare(a.date));
+  const el = $('#adminReportsList');
+  if(!el) return;
+  el.innerHTML = sorted.length ? `<div class="timeline">${sorted.map(reportTimelineItem).join('')}</div>` : emptyState('reports','لا توجد تقارير مطابقة','جرّب تغيير عامل التصفية');
+}
+
+/* ============================================================
+   PAGE: الأعضاء (Admin فقط)
+   ============================================================ */
+function pageMembers(){
+  const pending = state.users.filter(u => u.status === 'pending');
+  const active = state.users.filter(u => u.status !== 'pending');
+
+  return `
+    <div class="page-head">
+      <div><h1>الأعضاء</h1><p>إدارة أعضاء الفريق وطلبات الانضمام</p></div>
+      <button class="btn btn-amber" id="openMemberModalBtn">${ICONS.plus} إضافة عضو</button>
+    </div>
+
+    ${pending.length ? `
+      <div class="section-block">
+        <h3 class="section-title">طلبات بانتظار الموافقة (${pending.length})</h3>
+        ${pending.map(u => `
+          <div class="approval-card">
+            <div class="approval-info">
+              ${avatarHtml(u)}
+              <div>
+                <div style="font-weight:700;">${escapeHtml(u.name)}</div>
+                <div class="approval-meta">${escapeHtml(u.email)} · طلب بتاريخ ${formatDate(u.createdAt)}</div>
+              </div>
+            </div>
+            <div class="row-actions">
+              <button class="btn btn-primary btn-sm approve-btn" data-id="${u.id}">${ICONS.check} موافقة</button>
+              <button class="btn btn-danger btn-sm reject-btn" data-id="${u.id}">${ICONS.x} رفض</button>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    ` : ''}
+
+    <div class="section-block">
+      <h3 class="section-title">جميع الأعضاء (${active.length})</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>العضو</th><th>الصلاحية</th><th>المهام</th><th>التقارير</th><th>التقصير</th><th>الحالة</th><th>إجراءات</th></tr>
+          </thead>
+          <tbody>
+            ${active.map(u => `
+              <tr>
+                <td class="cell-user">${avatarHtml(u)} <div><div style="font-weight:700;">${escapeHtml(u.name)}</div><div style="font-size:12px;color:var(--text-400);">${escapeHtml(u.email)}</div></div></td>
+                <td><span class="badge ${u.role==='admin'?'badge-navy':'badge-grey'}">${u.role==='admin'?'مدير':'عضو'}</span></td>
+                <td>${userTasks(u.id).length}</td>
+                <td>${userReports(u.id).length}</td>
+                <td>${negligenceCount(u.id)}</td>
+                <td><span class="badge ${u.status==='active'?'badge-green':'badge-red'}">${u.status==='active'?'نشط':'معطّل'}</span></td>
+                <td class="row-actions">
+                  ${u.id !== state.currentUser.id ? `
+                    <button class="btn btn-ghost btn-sm toggle-status-btn" data-id="${u.id}">${u.status==='active'?'تعطيل':'تفعيل'}</button>
+                    <button class="btn btn-danger btn-sm btn-icon delete-member-btn" data-id="${u.id}" aria-label="حذف">${ICONS.trash}</button>
+                  ` : `<span style="font-size:12px;color:var(--text-400);">أنت</span>`}
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+/* ============================================================
+   PAGE: الإعدادات
+   ============================================================ */
+function pageSettings(){
+  const u = state.currentUser;
+  return `
+    <div class="page-head">
+      <div><h1>الإعدادات</h1><p>تحديث بياناتك الشخصية وكلمة المرور</p></div>
+    </div>
+    <div class="settings-grid">
+      <div class="card settings-card">
+        <h3 class="section-title">الصورة الشخصية</h3>
+        <div class="avatar-edit">
+          ${avatarHtml(u, 'lg')}
+          <div style="font-weight:700; margin-bottom:2px;">${escapeHtml(u.name)}</div>
+          <div style="font-size:12.5px; color:var(--text-600); margin-bottom:16px;">${escapeHtml(u.email)}</div>
+          <input type="file" id="avatarInput" accept="image/*" class="hidden">
+          <button class="btn btn-ghost btn-sm" id="changeAvatarBtn" style="margin:0 auto;">${ICONS.camera} تغيير الصورة</button>
+        </div>
+      </div>
+      <div class="card settings-card">
+        <h3 class="section-title">تغيير كلمة المرور</h3>
+        <form id="changePasswordForm">
+          <div class="form-row">
+            <label for="curPass">كلمة المرور الحالية</label>
+            <div class="pwd-field"><input type="password" id="curPass" required><button type="button" class="pwd-toggle" data-target="curPass"></button></div>
+          </div>
+          <div class="form-row">
+            <label for="newPass">كلمة المرور الجديدة</label>
+            <div class="pwd-field"><input type="password" id="newPass" required minlength="6"><button type="button" class="pwd-toggle" data-target="newPass"></button></div>
+          </div>
+          <div class="form-row">
+            <label for="confirmPass">تأكيد كلمة المرور الجديدة</label>
+            <div class="pwd-field"><input type="password" id="confirmPass" required minlength="6"><button type="button" class="pwd-toggle" data-target="confirmPass"></button></div>
+          </div>
+          <button type="submit" class="btn btn-primary" style="width:100%;">حفظ كلمة المرور</button>
+        </form>
+      </div>
+    </div>
+  `;
+}
+
+/* ============================================================
+   EVENT BINDING PER PAGE
+   ============================================================ */
+function bindPageEvents(){
+  // password toggles inside newly rendered content
+  $$('#pageContent .pwd-toggle').forEach(btn => btn.innerHTML = ICONS.eye);
+
+  if(state.activePage === 'tasks') bindTasksEvents();
+  if(state.activePage === 'reports') bindReportsEvents();
+  if(state.activePage === 'members') bindMembersEvents();
+  if(state.activePage === 'settings') bindSettingsEvents();
+}
+
+function bindTasksEvents(){
+  const openBtn = $('#openTaskModalBtn');
+  if(openBtn) openBtn.addEventListener('click', () => openTaskModal());
+
+  $$('.edit-task-btn').forEach(btn => btn.addEventListener('click', () => openTaskModal(Number(btn.dataset.id))));
+  $$('.delete-task-btn').forEach(btn => btn.addEventListener('click', async () => {
+    if(!confirm('هل تريد حذف هذه المهمة؟')) return;
+    try {
+      await apiFetch(`/tasks/${btn.dataset.id}`, { method: 'DELETE' });
+      await refreshData();
+      renderPage();
+      toast('تم حذف المهمة', 'ok');
+    } catch (err) {
+      toast(err.message, 'err');
+    }
+  }));
+  $$('.task-status-select').forEach(sel => sel.addEventListener('change', async () => {
+    const taskId = sel.dataset.task;
+    try {
+      await apiFetch(`/tasks/${taskId}/status`, { method: 'PUT', body: JSON.stringify({ status: sel.value }) });
+      await refreshData();
+      renderPage();
+      toast('تم تحديث حالة المهمة', 'ok');
+    } catch (err) {
+      toast(err.message, 'err');
+      renderPage(); // إعادة الحالة كما كانت في حال فشل الطلب
+    }
+  }));
+}
+
+function populateAssigneeSelect(){
+  const members = state.users.filter(u => u.status === 'active');
+  $('#taskAssignee').innerHTML = members.map(u => `<option value="${u.id}">${escapeHtml(u.name)} ${u.role==='admin'?'(مدير)':''}</option>`).join('');
+}
+
+function openTaskModal(taskId){
+  populateAssigneeSelect();
+  const overlay = $('#taskModalOverlay');
+  const form = $('#taskForm');
+  form.reset();
+  if(taskId){
+    const t = state.tasks.find(x => x.id === taskId);
+    $('#taskModalTitle').textContent = 'تعديل المهمة';
+    $('#taskId').value = t.id;
+    $('#taskTitle').value = t.title;
+    $('#taskDesc').value = t.description || '';
+    $('#taskAssignee').value = t.assignedTo;
+    $('#taskPriority').value = t.priority;
+    $('#taskDue').value = t.dueDate;
+  } else {
+    $('#taskModalTitle').textContent = 'مهمة جديدة';
+    $('#taskId').value = '';
+    $('#taskDue').value = todayStr();
+  }
+  overlay.classList.remove('hidden');
+}
+function closeTaskModal(){ $('#taskModalOverlay').classList.add('hidden'); }
+
+$('#taskModalClose').addEventListener('click', closeTaskModal);
+$('#taskCancelBtn').addEventListener('click', closeTaskModal);
+$('#taskModalOverlay').addEventListener('click', (e) => { if(e.target.id === 'taskModalOverlay') closeTaskModal(); });
+
+$('#taskForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const id = $('#taskId').value;
+  const payload = {
+    title: $('#taskTitle').value.trim(),
+    description: $('#taskDesc').value.trim(),
+    assignedTo: Number($('#taskAssignee').value),
+    priority: $('#taskPriority').value,
+    dueDate: $('#taskDue').value
+  };
+  setFormBusy(form, true);
+  try {
+    if(id){
+      await apiFetch(`/tasks/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
+      toast('تم تحديث المهمة', 'ok');
+    } else {
+      await apiFetch('/tasks', { method: 'POST', body: JSON.stringify(payload) });
+      toast('تمت إضافة المهمة بنجاح', 'ok');
+    }
+    closeTaskModal();
+    await refreshData();
+    renderPage();
+  } catch (err) {
+    toast(err.message, 'err');
+  } finally {
+    setFormBusy(form, false);
+  }
+});
+
+function bindReportsEvents(){
+  const isAdmin = state.currentUser.role === 'admin';
+  if(!isAdmin){
+    reportPickedStatus = null;
+    $$('.status-pill').forEach(pill => pill.addEventListener('click', () => {
+      reportPickedStatus = pill.dataset.status;
+      $$('.status-pill').forEach(p => p.className = 'status-pill');
+      pill.classList.add(pill.dataset.cls);
+    }));
+    $('#reportForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const form = e.target;
+      if(!reportPickedStatus){ toast('يرجى اختيار حالة التعلم', 'err'); return; }
+      const desc = $('#reportDesc').value.trim();
+      if(!desc){ toast('يرجى كتابة وصف ما تعلمته', 'err'); return; }
+      const taskId = $('#reportTask').value ? Number($('#reportTask').value) : null;
+      setFormBusy(form, true);
+      try {
+        await apiFetch('/reports', {
+          method: 'POST',
+          body: JSON.stringify({ status: reportPickedStatus, description: desc, taskId })
+        });
+        reportPickedStatus = null;
+        toast('تم حفظ التقرير بنجاح', 'ok');
+        await refreshData();
+        renderPage();
+      } catch (err) {
+        toast(err.message, 'err');
+      } finally {
+        setFormBusy(form, false);
+      }
+    });
+  } else {
+    renderAdminReportsList('all');
+    const filterSel = $('#reportFilterMember');
+    if(filterSel) filterSel.addEventListener('change', () => renderAdminReportsList(filterSel.value));
+  }
+}
+
+function bindMembersEvents(){
+  const openBtn = $('#openMemberModalBtn');
+  if(openBtn) openBtn.addEventListener('click', () => { $('#memberForm').reset(); $('#memberModalOverlay').classList.remove('hidden'); });
+
+  $$('.approve-btn').forEach(btn => btn.addEventListener('click', async () => {
+    const u = findUser(Number(btn.dataset.id));
+    try {
+      const data = await apiFetch(`/users/${btn.dataset.id}/approve`, { method: 'PUT' });
+      await refreshData();
+      renderPage();
+      toast(data.message || `تمت الموافقة على ${u ? u.name : ''}`, 'ok');
+    } catch (err) {
+      toast(err.message, 'err');
+    }
+  }));
+  $$('.reject-btn').forEach(btn => btn.addEventListener('click', async () => {
+    if(!confirm('هل تريد رفض هذا الطلب نهائيًا؟')) return;
+    try {
+      await apiFetch(`/users/${btn.dataset.id}`, { method: 'DELETE' });
+      await refreshData();
+      renderPage();
+      toast('تم رفض الطلب', 'err');
+    } catch (err) {
+      toast(err.message, 'err');
+    }
+  }));
+  $$('.toggle-status-btn').forEach(btn => btn.addEventListener('click', async () => {
+    try {
+      const data = await apiFetch(`/users/${btn.dataset.id}/toggle-status`, { method: 'PUT' });
+      await refreshData();
+      renderPage();
+      toast(data.message || 'تم تحديث حالة العضو', 'ok');
+    } catch (err) {
+      toast(err.message, 'err');
+    }
+  }));
+  $$('.delete-member-btn').forEach(btn => btn.addEventListener('click', async () => {
+    const target = findUser(Number(btn.dataset.id));
+    if(!confirm(`هل تريد حذف ${target ? target.name : 'هذا العضو'} نهائيًا؟`)) return;
+    try {
+      await apiFetch(`/users/${btn.dataset.id}`, { method: 'DELETE' });
+      await refreshData();
+      renderPage();
+      toast('تم حذف العضو', 'ok');
+    } catch (err) {
+      toast(err.message, 'err');
+    }
+  }));
+}
+
+$('#memberModalClose').addEventListener('click', () => $('#memberModalOverlay').classList.add('hidden'));
+$('#memberCancelBtn').addEventListener('click', () => $('#memberModalOverlay').classList.add('hidden'));
+$('#memberModalOverlay').addEventListener('click', (e) => { if(e.target.id === 'memberModalOverlay') $('#memberModalOverlay').classList.add('hidden'); });
+
+$('#memberForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const email = $('#memEmail').value.trim().toLowerCase();
+  const payload = {
+    name: $('#memName').value.trim(),
+    email,
+    password: $('#memPassword').value,
+    role: $('#memRole').value
+  };
+  setFormBusy(form, true);
+  try {
+    await apiFetch('/users', { method: 'POST', body: JSON.stringify(payload) });
+    $('#memberModalOverlay').classList.add('hidden');
+    await refreshData();
+    renderPage();
+    toast('تمت إضافة العضو بنجاح', 'ok');
+  } catch (err) {
+    toast(err.message, 'err');
+  } finally {
+    setFormBusy(form, false);
+  }
+});
+
+function bindSettingsEvents(){
+  const changeBtn = $('#changeAvatarBtn');
+  const fileInput = $('#avatarInput');
+  if(changeBtn) changeBtn.addEventListener('click', () => fileInput.click());
+  if(fileInput) fileInput.addEventListener('change', () => {
+    const file = fileInput.files[0];
+    if(!file) return;
+    if(!file.type.startsWith('image/')){ toast('يرجى اختيار ملف صورة', 'err'); return; }
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const data = await apiFetch('/auth/avatar', {
+          method: 'PUT',
+          body: JSON.stringify({ avatar: reader.result })
+        });
+        state.currentUser = data.user;
+        renderPage();
+        renderTopbar();
+        toast('تم تحديث الصورة الشخصية', 'ok');
+      } catch (err) {
+        toast(err.message, 'err');
+      }
+    };
+    reader.readAsDataURL(file);
+  });
+
+  $('#changePasswordForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const form = e.target;
+    const cur = $('#curPass').value, nw = $('#newPass').value, cf = $('#confirmPass').value;
+    if(nw.length < 6){ toast('كلمة المرور الجديدة قصيرة جدًا', 'err'); return; }
+    if(nw !== cf){ toast('كلمتا المرور الجديدتان غير متطابقتين', 'err'); return; }
+    setFormBusy(form, true);
+    try {
+      await apiFetch('/auth/change-password', {
+        method: 'PUT',
+        body: JSON.stringify({ currentPassword: cur, newPassword: nw, confirmPassword: cf })
+      });
+      form.reset();
+      toast('تم تغيير كلمة المرور بنجاح', 'ok');
+    } catch (err) {
+      toast(err.message, 'err');
+    } finally {
+      setFormBusy(form, false);
+    }
+  });
+}
+
+/* ============================================================
+   INIT
+   ============================================================ */
+initAuthTabs();
+tryRestoreSession();
+
+})();
+</script>
+</body>
+</html>
