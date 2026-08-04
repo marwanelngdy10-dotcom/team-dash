@@ -589,7 +589,8 @@ async function reportsList(){
 async function reportsCreate(p){
   const appUser = await fetchAppUser();
   const { data, error } = await sb.from('reports').insert({
-    status: p.status, description: p.description, taskId: p.taskId || null, userId: appUser.id
+    status: p.status, description: p.description, taskId: p.taskId || null, userId: appUser.id,
+    postponeUntil: p.status === 'لن يتم التعلم' ? (p.postponeUntil || null) : null
   }).select().single();
   if(error) throw new Error('تعذّر حفظ التقرير');
   return { report: data };
@@ -640,6 +641,31 @@ async function usersDelete(id){
   if(error) throw new Error(error.message || 'تعذّر حذف العضو');
   return { message: 'تم حذف العضو' };
 }
+async function usersUpdateRole(id, role){
+  const { data, error } = await sb.from('users').update({ role }).eq('id', id).select().single();
+  if(error) throw new Error(error.message || 'تعذّر تحديث الصلاحية');
+  return { message: `تم تحديث صلاحية ${data.name}`, user: data };
+}
+
+/* إعادة حساب أيام التقصير لكل الأعضاء النشطين على السيرفر (يوقف تلقائيًا من وصل 6 أيام) */
+async function negligenceRecalcAll(){
+  const { error } = await sb.rpc('recalc_negligence_all');
+  if(error) console.warn('تعذّر إعادة حساب التقصير:', error.message);
+}
+
+/* رفع مرفق (ملف/صورة) على مهمة عبر Supabase Storage */
+async function tasksUploadAttachment(taskId, file){
+  const safeName = file.name.replace(/[^\w.\-\u0600-\u06FF]/g, '_');
+  const path = `${taskId}/${Date.now()}_${safeName}`;
+  const { error: upErr } = await sb.storage.from('task-files').upload(path, file, { upsert: true });
+  if(upErr) throw new Error('تعذّر رفع الملف: ' + upErr.message);
+  const { data: pub } = sb.storage.from('task-files').getPublicUrl(path);
+  const { data, error } = await sb.from('tasks')
+    .update({ attachment: pub.publicUrl, attachmentName: file.name })
+    .eq('id', taskId).select().single();
+  if(error) throw new Error('تعذّر حفظ المرفق على المهمة');
+  return { task: data };
+}
 
 /* موجّه بسيط يحافظ على نفس الشكل اللي بقية الكود بيستخدمه (apiFetch(path, options)) */
 async function apiFetch(path, options = {}){
@@ -666,6 +692,7 @@ async function apiFetch(path, options = {}){
   if(path === '/users' && method === 'POST') return usersCreate(body);
   if((m = path.match(/^\/users\/(\d+)\/approve$/)) && method === 'PUT') return usersApprove(Number(m[1]));
   if((m = path.match(/^\/users\/(\d+)\/toggle-status$/)) && method === 'PUT') return usersToggleStatus(Number(m[1]));
+  if((m = path.match(/^\/users\/(\d+)\/role$/)) && method === 'PUT') return usersUpdateRole(Number(m[1]), body.role);
   if((m = path.match(/^\/users\/(\d+)$/)) && method === 'DELETE') return usersDelete(Number(m[1]));
 
   throw new Error('مسار غير مدعوم: ' + path);
@@ -693,6 +720,12 @@ async function refreshData(){
     jobs.push(apiFetch('/users').then(d => { state.users = d.users || []; }));
   }
   await Promise.all(jobs);
+  if(isAdmin){
+    // إعادة تقييم التقصير على السيرفر (بيوقف تلقائيًا مين وصل 6 أيام تقصير في الشهر)
+    await negligenceRecalcAll();
+    const d = await apiFetch('/users');
+    state.users = d.users || [];
+  }
 }
 
 /* ============================================================
@@ -710,6 +743,50 @@ function formatDate(iso){
   if(!iso) return '—';
   const [y,m,d] = iso.split('-');
   return `${d}/${m}/${y}`;
+}
+const LATE_CUTOFF_HOUR = 13; // بعد الساعة 1 الظهر يعتبر تسجيل متأخر (تقصير)
+function formatTime(isoDateTime){
+  if(!isoDateTime) return '—';
+  const d = new Date(isoDateTime);
+  return d.toLocaleTimeString('ar-EG', { hour:'2-digit', minute:'2-digit', hour12:true });
+}
+function formatDateTime(isoDateTime){
+  if(!isoDateTime) return '—';
+  const d = new Date(isoDateTime);
+  const dateStr = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  return `${formatDate(dateStr)} — ${formatTime(isoDateTime)}`;
+}
+function isReportLate(r){
+  if(!r || !r.createdAt) return false;
+  return new Date(r.createdAt).getHours() >= LATE_CUTOFF_HOUR;
+}
+/* حساب أيام التقصير لعضو خلال شهر معيّن (لأغراض العرض فقط — الإيقاف الفعلي يتم على قاعدة البيانات) */
+function monthlyNegligentDays(userId, monthDate){
+  const user = findUser(userId);
+  if(!user) return { days: 0, list: [] };
+  const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
+  const created = new Date(user.createdAt);
+  const postponeDates = state.reports
+    .filter(r => r.userId === userId && r.postponeUntil)
+    .map(r => r.postponeUntil)
+    .sort();
+  const postponeUntil = postponeDates.length ? postponeDates[postponeDates.length-1] : null;
+  const today = new Date();
+  const isCurrentMonth = monthDate.getFullYear()===today.getFullYear() && monthDate.getMonth()===today.getMonth();
+  const lastDay = isCurrentMonth ? today : new Date(monthDate.getFullYear(), monthDate.getMonth()+1, 0);
+  const negligentDates = [];
+  for(let d = new Date(Math.max(monthStart, created)); d <= lastDay; d.setDate(d.getDate()+1)){
+    const dStr = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    if(postponeUntil && dStr <= postponeUntil) continue;
+    const isToday = dStr === todayStr();
+    const dayReport = state.reports.find(r => r.userId === userId && r.date === dStr);
+    if(isToday){
+      if(dayReport && isReportLate(dayReport)) negligentDates.push(dStr);
+    } else {
+      if(!dayReport || isReportLate(dayReport)) negligentDates.push(dStr);
+    }
+  }
+  return { days: negligentDates.length, list: negligentDates };
 }
 function initials(name){
   if(!name) return '?';
@@ -997,6 +1074,7 @@ function pageTasks(){
 function taskCard(t, isAdmin){
   const assignee = findUser(t.assignedTo);
   const overdue = t.dueDate < todayStr() && t.status !== 'مكتملة';
+  const isOwner = state.currentUser.id === t.assignedTo;
   return `
     <div class="task-card">
       <div class="task-top">
@@ -1008,6 +1086,8 @@ function taskCard(t, isAdmin){
         ${isAdmin ? `<span class="cell-user">${avatarHtml(assignee)} ${escapeHtml(assignee ? assignee.name : '—')}</span>` : ''}
         <span class="${overdue ? 'overdue' : ''}">📅 ${formatDate(t.dueDate)}</span>
       </div>
+      ${t.completedAt ? `<div class="task-meta"><span>✅ اكتملت في ${formatDateTime(t.completedAt)}</span></div>` : ''}
+      ${t.attachment ? `<div class="task-meta"><a href="${t.attachment}" target="_blank" rel="noopener">📎 ${escapeHtml(t.attachmentName || 'مرفق')}</a></div>` : ''}
       <div class="task-actions">
         <span class="badge ${statusBadgeClass(t.status)}">${overdue ? 'متأخرة' : t.status}</span>
         ${!isAdmin ? `
@@ -1015,6 +1095,10 @@ function taskCard(t, isAdmin){
             <option value="قيد التنفيذ" ${t.status==='قيد التنفيذ'?'selected':''}>قيد التنفيذ</option>
             <option value="مكتملة" ${t.status==='مكتملة'?'selected':''}>مكتملة</option>
           </select>` : ''}
+        ${isOwner ? `
+          <button type="button" class="btn btn-ghost btn-sm attach-task-btn" data-id="${t.id}">${ICONS.camera} إرفاق ملف</button>
+          <input type="file" class="hidden attach-task-input" data-id="${t.id}" accept="image/*,.pdf,.doc,.docx,.xlsx,.txt">
+        ` : ''}
         ${isAdmin ? `
           <button class="btn btn-ghost btn-sm btn-icon edit-task-btn" data-id="${t.id}" aria-label="تعديل">${ICONS.edit}</button>
           <button class="btn btn-danger btn-sm btn-icon delete-task-btn" data-id="${t.id}" aria-label="حذف">${ICONS.trash}</button>
@@ -1065,6 +1149,10 @@ function reportsMemberView(){
             <button type="button" class="status-pill" data-status="لن يتم التعلم" data-cls="picked-red">✖️ لن يتم التعلم</button>
           </div>
         </div>
+        <div class="form-row hidden" id="postponeRow">
+          <label for="reportPostpone">مؤجّل لحد تاريخ (اختياري — لن يُحتسب تقصيرًا حتى هذا التاريخ)</label>
+          <input type="date" id="reportPostpone" min="${todayStr()}">
+        </div>
         <div class="form-row">
           <label for="reportDesc">وصف ما تم تعلمه</label>
           <textarea id="reportDesc" required placeholder="اكتب تفاصيل ما تعلمته أو ما واجهته اليوم..."></textarea>
@@ -1083,15 +1171,19 @@ function reportsMemberView(){
 
 function reportTimelineItem(r){
   const cls = r.status === 'تم التعلم' ? 'tl-green' : r.status === 'يتم التعلم' ? 'tl-amber' : 'tl-red';
-  const task = r.taskId ? findUser ? state.tasks.find(t=>t.id===r.taskId) : null : null;
+  const task = r.taskId ? state.tasks.find(t=>t.id===r.taskId) : null;
+  const author = findUser(r.userId);
+  const late = isReportLate(r);
   return `
     <div class="timeline-item ${cls}">
       <div class="tl-head">
         <span class="badge ${statusBadgeClass(r.status)}">${r.status}</span>
-        <span class="tl-date">${formatDate(r.date)} — ${escapeHtml(r.userName)}</span>
+        ${late ? `<span class="badge badge-red">⏰ متأخر</span>` : ''}
+        <span class="tl-date">${formatDateTime(r.createdAt)} — ${escapeHtml(author ? author.name : '')}</span>
       </div>
       <div class="tl-desc">${escapeHtml(r.description)}</div>
       ${task ? `<div class="tl-task">🔗 مرتبط بمهمة: ${escapeHtml(task.title)}</div>` : ''}
+      ${r.postponeUntil ? `<div class="tl-task">⏸️ مؤجّل بدون تقصير لحد: ${formatDate(r.postponeUntil)}</div>` : ''}
     </div>
   `;
 }
@@ -1107,6 +1199,10 @@ function reportsAdminView(){
   const negligenceRows = members
     .map(m => ({name:m.name, id:m.id, count: negligenceCount(m.id)}))
     .sort((a,b) => b.count - a.count);
+
+  const monthlyRows = members
+    .map(m => ({ id:m.id, name:m.name, status:m.status, suspendedAuto: m.suspendedAuto, ...monthlyNegligentDays(m.id, new Date()) }))
+    .sort((a,b) => b.days - a.days);
 
   return `
     <div class="page-head">
@@ -1130,11 +1226,38 @@ function reportsAdminView(){
     </div>
 
     <div class="section-block">
-      <h3 class="section-title">عدد مرات التقصير لكل عضو</h3>
-      <p style="color:var(--text-600); font-size:13px; margin-top:-8px;">يُحتسب التقصير عند اختيار حالة "لن يتم التعلم" في التقرير</p>
+      <h3 class="section-title">أيام التقصير في الحضور اليومي (الشهر الحالي)</h3>
+      <p style="color:var(--text-600); font-size:13px; margin-top:-8px;">
+        يُحتسب اليوم "تقصير" لو العضو ما سجّلش تقرير خالص، أو سجّله بعد الساعة 1 الظهر.
+        عند الوصول لـ 6 أيام تقصير في الشهر يتم إيقاف العضو تلقائيًا، والمدير هو الوحيد اللي يقدر يرجّعه من صفحة الأعضاء.
+      </p>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>العضو</th><th>عدد مرات التقصير</th><th>الحالة</th></tr></thead>
+          <thead><tr><th>العضو</th><th>أيام التقصير هذا الشهر</th><th>الحالة</th></tr></thead>
+          <tbody>
+            ${monthlyRows.map(row => `
+              <tr>
+                <td class="cell-user">${avatarHtml(findUser(row.id))} ${escapeHtml(row.name)}</td>
+                <td><b>${row.days}</b> / 6</td>
+                <td>${row.status==='disabled' && row.suspendedAuto
+                  ? '<span class="badge badge-red">🚫 موقوف تلقائيًا (تقصير)</span>'
+                  : row.status==='disabled'
+                    ? '<span class="badge badge-red">معطّل يدويًا</span>'
+                    : row.days>=6 ? '<span class="badge badge-red">سيتم إيقافه</span>'
+                    : row.days>=3 ? '<span class="badge badge-amber">تحذير</span>'
+                    : '<span class="badge badge-green">منتظم</span>'}</td>
+              </tr>
+            `).join('') || '<tr><td colspan="3" style="text-align:center;color:var(--text-400);padding:24px;">لا يوجد أعضاء بعد</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="section-block">
+      <h3 class="section-title">عدد مرات اختيار "لن يتم التعلم"</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>العضو</th><th>عدد المرات</th><th>الحالة</th></tr></thead>
           <tbody>
             ${negligenceRows.map(row => `
               <tr>
@@ -1150,12 +1273,21 @@ function reportsAdminView(){
 
     <div class="section-block">
       <h3 class="section-title">كل التقارير</h3>
-      <div class="form-row" style="max-width:260px;">
-        <label for="reportFilterMember">تصفية حسب العضو</label>
-        <select id="reportFilterMember">
-          <option value="all">كل الأعضاء</option>
-          ${members.map(m => `<option value="${m.id}">${escapeHtml(m.name)}</option>`).join('')}
-        </select>
+      <div style="display:flex; gap:14px; flex-wrap:wrap;">
+        <div class="form-row" style="max-width:260px;">
+          <label for="reportFilterMember">تصفية حسب العضو</label>
+          <select id="reportFilterMember">
+            <option value="all">كل الأعضاء</option>
+            ${members.map(m => `<option value="${m.id}">${escapeHtml(m.name)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-row" style="max-width:220px;">
+          <label for="reportFilterDate">تصفية حسب يوم معيّن</label>
+          <input type="date" id="reportFilterDate">
+        </div>
+        <div class="form-row" style="align-self:flex-end;">
+          <button type="button" class="btn btn-ghost" id="reportFilterClear">إلغاء التصفية</button>
+        </div>
       </div>
       <div id="adminReportsList"></div>
     </div>
@@ -1173,14 +1305,31 @@ function barRow(label, val, total, color){
   `;
 }
 
-function renderAdminReportsList(filterId){
-  const filtered = filterId && filterId !== 'all'
-    ? state.reports.filter(r => String(r.userId) === String(filterId))
-    : state.reports;
-  const sorted = filtered.slice().sort((a,b) => b.date.localeCompare(a.date));
+function renderAdminReportsList(filterId, filterDate){
+  let filtered = state.reports;
+  if(filterId && filterId !== 'all') filtered = filtered.filter(r => String(r.userId) === String(filterId));
+  if(filterDate) filtered = filtered.filter(r => r.date === filterDate);
+  const sorted = filtered.slice().sort((a,b) => (b.createdAt||'').localeCompare(a.createdAt||''));
   const el = $('#adminReportsList');
   if(!el) return;
-  el.innerHTML = sorted.length ? `<div class="timeline">${sorted.map(reportTimelineItem).join('')}</div>` : emptyState('reports','لا توجد تقارير مطابقة','جرّب تغيير عامل التصفية');
+
+  let missingHtml = '';
+  if(filterDate){
+    const members = state.users.filter(u => u.role === 'member' && u.status !== 'pending');
+    const reportedIds = new Set(state.reports.filter(r => r.date === filterDate).map(r => r.userId));
+    const missing = members.filter(m => !reportedIds.has(m.id));
+    if(missing.length){
+      missingHtml = `
+        <div class="card" style="padding:16px 18px; margin-bottom:16px; border-color:var(--red-500);">
+          <b>لم يسجّلوا تقريرًا في هذا اليوم (${formatDate(filterDate)}):</b>
+          <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
+            ${missing.map(m => `<span class="badge badge-red">${escapeHtml(m.name)}</span>`).join('')}
+          </div>
+        </div>`;
+    }
+  }
+
+  el.innerHTML = missingHtml + (sorted.length ? `<div class="timeline">${sorted.map(reportTimelineItem).join('')}</div>` : emptyState('reports','لا توجد تقارير مطابقة','جرّب تغيير عامل التصفية'));
 }
 
 /* ============================================================
@@ -1222,25 +1371,37 @@ function pageMembers(){
       <div class="table-wrap">
         <table>
           <thead>
-            <tr><th>العضو</th><th>الصلاحية</th><th>المهام</th><th>التقارير</th><th>التقصير</th><th>الحالة</th><th>إجراءات</th></tr>
+            <tr><th>العضو</th><th>الصلاحية</th><th>المهام</th><th>آخر تسجيل تقرير</th><th>التقصير</th><th>الحالة</th><th>إجراءات</th></tr>
           </thead>
           <tbody>
-            ${active.map(u => `
+            ${active.map(u => {
+              const lastReport = userReports(u.id).slice().sort((a,b) => (b.createdAt||'').localeCompare(a.createdAt||''))[0];
+              const isSelf = u.id === state.currentUser.id;
+              return `
               <tr>
                 <td class="cell-user">${avatarHtml(u)} <div><div style="font-weight:700;">${escapeHtml(u.name)}</div><div style="font-size:12px;color:var(--text-400);">${escapeHtml(u.email)}</div></div></td>
-                <td><span class="badge ${u.role==='admin'?'badge-navy':'badge-grey'}">${u.role==='admin'?'مدير':'عضو'}</span></td>
+                <td>
+                  <select class="role-select" data-id="${u.id}" ${isSelf ? 'disabled' : ''} aria-label="صلاحية العضو">
+                    <option value="member" ${u.role==='member'?'selected':''}>عضو</option>
+                    <option value="admin" ${u.role==='admin'?'selected':''}>مدير</option>
+                  </select>
+                </td>
                 <td>${userTasks(u.id).length}</td>
-                <td>${userReports(u.id).length}</td>
-                <td>${negligenceCount(u.id)}</td>
-                <td><span class="badge ${u.status==='active'?'badge-green':'badge-red'}">${u.status==='active'?'نشط':'معطّل'}</span></td>
+                <td>${lastReport ? `${formatDateTime(lastReport.createdAt)}${isReportLate(lastReport) ? ' <span class="badge badge-red">متأخر</span>' : ''}` : '<span style="color:var(--text-400);">لا يوجد</span>'}</td>
+                <td>${monthlyNegligentDays(u.id, new Date()).days} / 6</td>
+                <td>${u.status==='active'
+                    ? '<span class="badge badge-green">نشط</span>'
+                    : u.suspendedAuto
+                      ? '<span class="badge badge-red">موقوف تلقائيًا (تقصير)</span>'
+                      : '<span class="badge badge-red">معطّل يدويًا</span>'}</td>
                 <td class="row-actions">
-                  ${u.id !== state.currentUser.id ? `
+                  ${!isSelf ? `
                     <button class="btn btn-ghost btn-sm toggle-status-btn" data-id="${u.id}">${u.status==='active'?'تعطيل':'تفعيل'}</button>
                     <button class="btn btn-danger btn-sm btn-icon delete-member-btn" data-id="${u.id}" aria-label="حذف">${ICONS.trash}</button>
                   ` : `<span style="font-size:12px;color:var(--text-400);">أنت</span>`}
                 </td>
               </tr>
-            `).join('')}
+            `;}).join('')}
           </tbody>
         </table>
       </div>
@@ -1331,6 +1492,24 @@ function bindTasksEvents(){
       renderPage(); // إعادة الحالة كما كانت في حال فشل الطلب
     }
   }));
+  $$('.attach-task-btn').forEach(btn => btn.addEventListener('click', () => {
+    const input = document.querySelector(`.attach-task-input[data-id="${btn.dataset.id}"]`);
+    if(input) input.click();
+  }));
+  $$('.attach-task-input').forEach(input => input.addEventListener('change', async () => {
+    const file = input.files[0];
+    if(!file) return;
+    if(file.size > 5 * 1024 * 1024){ toast('حجم الملف كبير جدًا (الحد الأقصى 5 ميجا)', 'err'); return; }
+    try {
+      toast('جاري رفع الملف...', 'ok');
+      await tasksUploadAttachment(Number(input.dataset.id), file);
+      await refreshData();
+      renderPage();
+      toast('تم إرفاق الملف بنجاح', 'ok');
+    } catch (err) {
+      toast(err.message, 'err');
+    }
+  }));
 }
 
 function populateAssigneeSelect(){
@@ -1403,6 +1582,8 @@ function bindReportsEvents(){
       reportPickedStatus = pill.dataset.status;
       $$('.status-pill').forEach(p => p.className = 'status-pill');
       pill.classList.add(pill.dataset.cls);
+      const postponeRow = $('#postponeRow');
+      if(postponeRow) postponeRow.classList.toggle('hidden', reportPickedStatus !== 'لن يتم التعلم');
     }));
     $('#reportForm').addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -1411,11 +1592,12 @@ function bindReportsEvents(){
       const desc = $('#reportDesc').value.trim();
       if(!desc){ toast('يرجى كتابة وصف ما تعلمته', 'err'); return; }
       const taskId = $('#reportTask').value ? Number($('#reportTask').value) : null;
+      const postponeUntil = $('#reportPostpone') && $('#reportPostpone').value ? $('#reportPostpone').value : null;
       setFormBusy(form, true);
       try {
         await apiFetch('/reports', {
           method: 'POST',
-          body: JSON.stringify({ status: reportPickedStatus, description: desc, taskId })
+          body: JSON.stringify({ status: reportPickedStatus, description: desc, taskId, postponeUntil })
         });
         reportPickedStatus = null;
         toast('تم حفظ التقرير بنجاح', 'ok');
@@ -1428,9 +1610,17 @@ function bindReportsEvents(){
       }
     });
   } else {
-    renderAdminReportsList('all');
     const filterSel = $('#reportFilterMember');
-    if(filterSel) filterSel.addEventListener('change', () => renderAdminReportsList(filterSel.value));
+    const dateInput = $('#reportFilterDate');
+    const clearBtn = $('#reportFilterClear');
+    const refresh = () => renderAdminReportsList(filterSel.value, dateInput.value || null);
+    renderAdminReportsList('all');
+    if(filterSel) filterSel.addEventListener('change', refresh);
+    if(dateInput) dateInput.addEventListener('change', refresh);
+    if(clearBtn) clearBtn.addEventListener('click', () => {
+      filterSel.value = 'all'; dateInput.value = '';
+      renderAdminReportsList('all');
+    });
   }
 }
 
@@ -1479,6 +1669,18 @@ function bindMembersEvents(){
       renderPage();
       toast('تم حذف العضو', 'ok');
     } catch (err) {
+      toast(err.message, 'err');
+    }
+  }));
+  $$('.role-select').forEach(sel => sel.addEventListener('change', async () => {
+    const prevValue = sel.value === 'admin' ? 'member' : 'admin';
+    try {
+      const data = await apiFetch(`/users/${sel.dataset.id}/role`, { method: 'PUT', body: JSON.stringify({ role: sel.value }) });
+      await refreshData();
+      renderPage();
+      toast(data.message || 'تم تحديث الصلاحية', 'ok');
+    } catch (err) {
+      sel.value = prevValue;
       toast(err.message, 'err');
     }
   }));
