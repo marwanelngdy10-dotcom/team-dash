@@ -549,6 +549,15 @@ async function authUpdateAvatar({ avatar }){
   if(error) throw new Error('تعذّر تحديث الصورة');
   return { user: data };
 }
+async function authUpdateName({ name }){
+  const { data: { session } } = await sb.auth.getSession();
+  if(!session) throw new Error('غير مسجل الدخول');
+  const trimmed = String(name || '').trim();
+  if(!trimmed) throw new Error('يرجى إدخال اسم صحيح');
+  const { data, error } = await sb.from('users').update({ name: trimmed }).eq('authId', session.user.id).select().single();
+  if(error) throw new Error('تعذّر تحديث الاسم');
+  return { user: data };
+}
 
 async function tasksList(){
   const { data, error } = await sb.from('tasks').select('*').order('createdAt', { ascending: false });
@@ -575,6 +584,12 @@ async function tasksUpdateStatus(id, { status }){
   if(error) throw new Error('تعذّر تحديث حالة المهمة');
   return { task: data };
 }
+/* حفظ ملاحظة نصية عن إنجاز المهمة (بديل أو بالإضافة لرفع ملف) */
+async function tasksSaveNote(id, note){
+  const { data, error } = await sb.from('tasks').update({ completionNote: note || null }).eq('id', id).select().single();
+  if(error) throw new Error('تعذّر حفظ الملاحظة');
+  return { task: data };
+}
 async function tasksDelete(id){
   const { error } = await sb.from('tasks').delete().eq('id', id);
   if(error) throw new Error('تعذّر حذف المهمة');
@@ -590,9 +605,16 @@ async function reportsCreate(p){
   const appUser = await fetchAppUser();
   const { data, error } = await sb.from('reports').insert({
     status: p.status, description: p.description, taskId: p.taskId || null, userId: appUser.id,
-    postponeUntil: p.status === 'لن يتم التعلم' ? (p.postponeUntil || null) : null
+    postponeUntil: p.status === 'لن يتم التعلم' ? (p.postponeUntil || null) : null,
+    postponeApproved: null // بانتظار مراجعة المدير — لا يُحتسب ضد التقصير قبل الموافقة
   }).select().single();
   if(error) throw new Error('تعذّر حفظ التقرير');
+  return { report: data };
+}
+/* موافقة/رفض المدير على "عذر" تأجيل احتساب التقصير */
+async function reportsSetPostponeApproval(id, approved){
+  const { data, error } = await sb.from('reports').update({ postponeApproved: approved }).eq('id', id).select().single();
+  if(error) throw new Error('تعذّر تحديث حالة العذر');
   return { report: data };
 }
 
@@ -678,15 +700,18 @@ async function apiFetch(path, options = {}){
   if(path === '/auth/me' && method === 'GET') return authMe();
   if(path === '/auth/change-password' && method === 'PUT') return authChangePassword(body);
   if(path === '/auth/avatar' && method === 'PUT') return authUpdateAvatar(body);
+  if(path === '/auth/name' && method === 'PUT') return authUpdateName(body);
 
   if(path === '/tasks' && method === 'GET') return tasksList();
   if(path === '/tasks' && method === 'POST') return tasksCreate(body);
   if((m = path.match(/^\/tasks\/(\d+)\/status$/)) && method === 'PUT') return tasksUpdateStatus(Number(m[1]), body);
+  if((m = path.match(/^\/tasks\/(\d+)\/note$/)) && method === 'PUT') return tasksSaveNote(Number(m[1]), body.note);
   if((m = path.match(/^\/tasks\/(\d+)$/)) && method === 'PUT') return tasksUpdate(Number(m[1]), body);
   if((m = path.match(/^\/tasks\/(\d+)$/)) && method === 'DELETE') return tasksDelete(Number(m[1]));
 
   if(path === '/reports' && method === 'GET') return reportsList();
   if(path === '/reports' && method === 'POST') return reportsCreate(body);
+  if((m = path.match(/^\/reports\/(\d+)\/postpone-approval$/)) && method === 'PUT') return reportsSetPostponeApproval(Number(m[1]), body.approved);
 
   if(path === '/users' && method === 'GET') return usersList();
   if(path === '/users' && method === 'POST') return usersCreate(body);
@@ -767,7 +792,7 @@ function monthlyNegligentDays(userId, monthDate){
   const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
   const created = new Date(user.createdAt);
   const postponeDates = state.reports
-    .filter(r => r.userId === userId && r.postponeUntil)
+    .filter(r => r.userId === userId && r.postponeUntil && r.postponeApproved === true)
     .map(r => r.postponeUntil)
     .sort();
   const postponeUntil = postponeDates.length ? postponeDates[postponeDates.length-1] : null;
@@ -1087,7 +1112,8 @@ function taskCard(t, isAdmin){
         <span class="${overdue ? 'overdue' : ''}">📅 ${formatDate(t.dueDate)}</span>
       </div>
       ${t.completedAt ? `<div class="task-meta"><span>✅ اكتملت في ${formatDateTime(t.completedAt)}</span></div>` : ''}
-      ${t.attachment ? `<div class="task-meta"><a href="${t.attachment}" target="_blank" rel="noopener">📎 ${escapeHtml(t.attachmentName || 'مرفق')}</a></div>` : ''}
+      ${t.attachment ? `<div class="task-meta"><a href="${t.attachment}" target="_blank" rel="noopener">📎 ${escapeHtml(t.attachmentName || 'مرفق')}</a></div>` : (isAdmin ? `<div class="task-meta" style="color:var(--text-400);">📎 لم يتم رفع أي ملف</div>` : '')}
+      ${t.completionNote ? `<div class="task-desc" style="background:var(--bg-100,rgba(0,0,0,.03)); border-radius:8px; padding:8px 10px;">📝 ${escapeHtml(t.completionNote)}</div>` : ''}
       <div class="task-actions">
         <span class="badge ${statusBadgeClass(t.status)}">${overdue ? 'متأخرة' : t.status}</span>
         ${!isAdmin ? `
@@ -1097,13 +1123,19 @@ function taskCard(t, isAdmin){
           </select>` : ''}
         ${isOwner ? `
           <button type="button" class="btn btn-ghost btn-sm attach-task-btn" data-id="${t.id}">${ICONS.camera} إرفاق ملف</button>
-          <input type="file" class="hidden attach-task-input" data-id="${t.id}" accept="image/*,.pdf,.doc,.docx,.xlsx,.txt">
+          <input type="file" class="hidden attach-task-input" data-id="${t.id}">
         ` : ''}
         ${isAdmin ? `
           <button class="btn btn-ghost btn-sm btn-icon edit-task-btn" data-id="${t.id}" aria-label="تعديل">${ICONS.edit}</button>
           <button class="btn btn-danger btn-sm btn-icon delete-task-btn" data-id="${t.id}" aria-label="حذف">${ICONS.trash}</button>
         ` : ''}
       </div>
+      ${isOwner ? `
+        <div class="task-note-row" style="display:flex; gap:8px; align-items:flex-start; margin-top:2px;">
+          <textarea class="task-note-input" data-id="${t.id}" placeholder="اكتب ملاحظة عن إنجاز المهمة (اختياري)..." style="flex:1; min-height:44px; resize:vertical; font-size:12.5px; border:1.5px solid var(--border); border-radius:8px; padding:8px 10px;">${escapeHtml(t.completionNote || '')}</textarea>
+          <button type="button" class="btn btn-ghost btn-sm save-note-btn" data-id="${t.id}">حفظ الملاحظة</button>
+        </div>
+      ` : ''}
     </div>
   `;
 }
@@ -1165,15 +1197,24 @@ function reportsMemberView(){
     </div>
 
     <h3 class="section-title">سجل تقاريري (${myReports.length})</h3>
-    ${myReports.length ? `<div class="timeline">${myReports.map(reportTimelineItem).join('')}</div>` : emptyState('reports','لا توجد تقارير بعد','ابدأ بتسجيل أول تقرير تعلم لك أعلاه')}
+    ${myReports.length ? `<div class="timeline">${myReports.map(r => reportTimelineItem(r, false)).join('')}</div>` : emptyState('reports','لا توجد تقارير بعد','ابدأ بتسجيل أول تقرير تعلم لك أعلاه')}
   `;
 }
 
-function reportTimelineItem(r){
+function reportTimelineItem(r, isAdmin){
   const cls = r.status === 'تم التعلم' ? 'tl-green' : r.status === 'يتم التعلم' ? 'tl-amber' : 'tl-red';
   const task = r.taskId ? state.tasks.find(t=>t.id===r.taskId) : null;
   const author = findUser(r.userId);
   const late = isReportLate(r);
+  const postponeBadge = !r.postponeUntil ? '' :
+    r.postponeApproved === true ? `<span class="badge badge-green">✔️ عذر مقبول — لحد ${formatDate(r.postponeUntil)}</span>` :
+    r.postponeApproved === false ? `<span class="badge badge-red">✖️ عذر مرفوض</span>` :
+    `<span class="badge badge-amber">⏳ عذر بانتظار مراجعة المدير</span>`;
+  const approvalActions = (isAdmin && r.postponeUntil && r.postponeApproved !== true) ? `
+    <div class="row-actions" style="margin-top:8px;">
+      ${r.postponeApproved !== true ? `<button class="btn btn-primary btn-sm postpone-approve-btn" data-id="${r.id}">قبول العذر</button>` : ''}
+      ${r.postponeApproved !== false ? `<button class="btn btn-danger btn-sm postpone-reject-btn" data-id="${r.id}">رفض العذر</button>` : ''}
+    </div>` : '';
   return `
     <div class="timeline-item ${cls}">
       <div class="tl-head">
@@ -1183,7 +1224,8 @@ function reportTimelineItem(r){
       </div>
       <div class="tl-desc">${escapeHtml(r.description)}</div>
       ${task ? `<div class="tl-task">🔗 مرتبط بمهمة: ${escapeHtml(task.title)}</div>` : ''}
-      ${r.postponeUntil ? `<div class="tl-task">⏸️ مؤجّل بدون تقصير لحد: ${formatDate(r.postponeUntil)}</div>` : ''}
+      ${r.postponeUntil ? `<div class="tl-task" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">⏸️ طلب تأجيل احتساب التقصير لحد ${formatDate(r.postponeUntil)} ${postponeBadge}</div>` : ''}
+      ${approvalActions}
     </div>
   `;
 }
@@ -1204,10 +1246,23 @@ function reportsAdminView(){
     .map(m => ({ id:m.id, name:m.name, status:m.status, suspendedAuto: m.suspendedAuto, ...monthlyNegligentDays(m.id, new Date()) }))
     .sort((a,b) => b.days - a.days);
 
+  const pendingPostpone = state.reports
+    .filter(r => r.postponeUntil && r.postponeApproved !== true && r.postponeApproved !== false)
+    .slice().sort((a,b) => (b.createdAt||'').localeCompare(a.createdAt||''));
+
   return `
     <div class="page-head">
       <div><h1>التقارير</h1><p>مراجعة تقارير التعلم لجميع الأعضاء</p></div>
     </div>
+
+    ${pendingPostpone.length ? `
+    <div class="section-block">
+      <h3 class="section-title">⏳ طلبات تأجيل بانتظار المراجعة (${pendingPostpone.length})</h3>
+      <p style="color:var(--text-600); font-size:13px; margin-top:-8px;">
+        عضو اختار "لن يتم التعلم" وطلب ألا تُحتسب الأيام تقصيرًا حتى تاريخ معيّن. لن يُستثنى أي يوم من التقصير إلا بعد موافقتك.
+      </p>
+      <div class="timeline">${pendingPostpone.map(r => reportTimelineItem(r, true)).join('')}</div>
+    </div>` : ''}
 
     <div class="stat-grid">
       <div class="stat-card"><div class="stat-num">${total}</div><div class="stat-label">إجمالي التقارير</div></div>
@@ -1329,7 +1384,31 @@ function renderAdminReportsList(filterId, filterDate){
     }
   }
 
-  el.innerHTML = missingHtml + (sorted.length ? `<div class="timeline">${sorted.map(reportTimelineItem).join('')}</div>` : emptyState('reports','لا توجد تقارير مطابقة','جرّب تغيير عامل التصفية'));
+  el.innerHTML = missingHtml + (sorted.length ? `<div class="timeline">${sorted.map(r => reportTimelineItem(r, true)).join('')}</div>` : emptyState('reports','لا توجد تقارير مطابقة','جرّب تغيير عامل التصفية'));
+  bindPostponeApprovalEvents(el);
+}
+
+function bindPostponeApprovalEvents(container){
+  Array.from(container.querySelectorAll('.postpone-approve-btn')).forEach(btn => btn.addEventListener('click', async () => {
+    try {
+      await reportsSetPostponeApproval(Number(btn.dataset.id), true);
+      await refreshData();
+      renderPage();
+      toast('تم قبول العذر — لن يُحتسب تقصيرًا', 'ok');
+    } catch (err) {
+      toast(err.message, 'err');
+    }
+  }));
+  Array.from(container.querySelectorAll('.postpone-reject-btn')).forEach(btn => btn.addEventListener('click', async () => {
+    try {
+      await reportsSetPostponeApproval(Number(btn.dataset.id), false);
+      await refreshData();
+      renderPage();
+      toast('تم رفض العذر', 'err');
+    } catch (err) {
+      toast(err.message, 'err');
+    }
+  }));
 }
 
 /* ============================================================
@@ -1430,6 +1509,16 @@ function pageSettings(){
         </div>
       </div>
       <div class="card settings-card">
+        <h3 class="section-title">الاسم الكامل</h3>
+        <form id="changeNameForm">
+          <div class="form-row">
+            <label for="fullName">الاسم</label>
+            <input type="text" id="fullName" required value="${escapeHtml(u.name)}">
+          </div>
+          <button type="submit" class="btn btn-primary" style="width:100%;">حفظ الاسم</button>
+        </form>
+      </div>
+      <div class="card settings-card">
         <h3 class="section-title">تغيير كلمة المرور</h3>
         <form id="changePasswordForm">
           <div class="form-row">
@@ -1499,13 +1588,25 @@ function bindTasksEvents(){
   $$('.attach-task-input').forEach(input => input.addEventListener('change', async () => {
     const file = input.files[0];
     if(!file) return;
-    if(file.size > 5 * 1024 * 1024){ toast('حجم الملف كبير جدًا (الحد الأقصى 5 ميجا)', 'err'); return; }
+    if(file.size > 10 * 1024 * 1024){ toast('حجم الملف كبير جدًا (الحد الأقصى 10 ميجا)', 'err'); return; }
     try {
       toast('جاري رفع الملف...', 'ok');
       await tasksUploadAttachment(Number(input.dataset.id), file);
       await refreshData();
       renderPage();
       toast('تم إرفاق الملف بنجاح', 'ok');
+    } catch (err) {
+      toast(err.message, 'err');
+    }
+  }));
+  $$('.save-note-btn').forEach(btn => btn.addEventListener('click', async () => {
+    const input = document.querySelector(`.task-note-input[data-id="${btn.dataset.id}"]`);
+    const note = input ? input.value.trim() : '';
+    try {
+      await tasksSaveNote(Number(btn.dataset.id), note);
+      await refreshData();
+      renderPage();
+      toast('تم حفظ الملاحظة', 'ok');
     } catch (err) {
       toast(err.message, 'err');
     }
@@ -1610,6 +1711,7 @@ function bindReportsEvents(){
       }
     });
   } else {
+    bindPostponeApprovalEvents(document);
     const filterSel = $('#reportFilterMember');
     const dateInput = $('#reportFilterDate');
     const clearBtn = $('#reportFilterClear');
@@ -1715,6 +1817,25 @@ $('#memberForm').addEventListener('submit', async (e) => {
 });
 
 function bindSettingsEvents(){
+  const nameForm = $('#changeNameForm');
+  if(nameForm) nameForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const form = e.target;
+    const name = $('#fullName').value.trim();
+    if(!name){ toast('يرجى إدخال اسم صحيح', 'err'); return; }
+    setFormBusy(form, true);
+    try {
+      const data = await apiFetch('/auth/name', { method: 'PUT', body: JSON.stringify({ name }) });
+      state.currentUser = data.user;
+      renderTopbar();
+      toast('تم تحديث الاسم بنجاح', 'ok');
+    } catch (err) {
+      toast(err.message, 'err');
+    } finally {
+      setFormBusy(form, false);
+    }
+  });
+
   const changeBtn = $('#changeAvatarBtn');
   const fileInput = $('#avatarInput');
   if(changeBtn) changeBtn.addEventListener('click', () => fileInput.click());
