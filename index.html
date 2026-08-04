@@ -143,6 +143,13 @@
   .user-chip{display:flex; align-items:center; gap:10px; padding:6px 10px 6px 14px; border-radius:99px; background:var(--bg); cursor:default;}
   .avatar{width:36px; height:36px; border-radius:50%; background:var(--amber-500); color:var(--navy-950); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:14px; overflow:hidden; flex-shrink:0;}
   .avatar img{width:100%; height:100%; object-fit:cover;}
+  .presence-wrap{position:relative; display:inline-flex; flex-shrink:0;}
+  .presence-dot{position:absolute; bottom:-1px; left:-1px; width:11px; height:11px; border-radius:50%; background:var(--text-400); border:2px solid var(--surface); box-sizing:content-box;}
+  .presence-dot.online{background:var(--green-500);}
+  .presence-label{font-size:11.5px; color:var(--text-400); display:inline-flex; align-items:center; gap:5px;}
+  .presence-label::before{content:''; width:7px; height:7px; border-radius:50%; background:var(--text-400); flex-shrink:0;}
+  .presence-label.online{color:var(--green-500);}
+  .presence-label.online::before{background:var(--green-500);}
   .user-chip-info{line-height:1.3;}
   .user-chip-name{font-size:13.5px; font-weight:700;}
   .user-chip-role{font-size:11px; color:var(--text-600);}
@@ -642,6 +649,13 @@ async function authUpdateName({ name }){
   return { user: data };
 }
 
+/* نبضة حضور (heartbeat) — بتحدّث "آخر ظهور" بتاعت المستخدم الحالي فقط، بتفشل بهدوء لو حصل خطأ */
+async function authHeartbeat(){
+  const { data: { session } } = await sb.auth.getSession();
+  if(!session) return;
+  await sb.from('users').update({ lastSeenAt: new Date().toISOString() }).eq('authId', session.user.id);
+}
+
 async function tasksList(){
   const { data, error } = await sb.from('tasks').select('*').order('createdAt', { ascending: false });
   if(error) throw new Error('تعذّر تحميل المهام');
@@ -848,6 +862,7 @@ async function apiFetch(path, options = {}){
   if(path === '/auth/change-password' && method === 'PUT') return authChangePassword(body);
   if(path === '/auth/avatar' && method === 'PUT') return authUpdateAvatar(body);
   if(path === '/auth/name' && method === 'PUT') return authUpdateName(body);
+  if(path === '/auth/heartbeat' && method === 'PUT') return authHeartbeat();
 
   if(path === '/tasks' && method === 'GET') return tasksList();
   if(path === '/tasks' && method === 'POST') return tasksCreate(body);
@@ -896,14 +911,14 @@ const state = {
 /* يجلب البيانات المطلوبة لعرض الصفحة الحالية من الباك إند */
 async function refreshData(){
   const isAdmin = state.currentUser && state.currentUser.role === 'admin';
+  // /users لازم تتجاب لكل الأعضاء مش المدير بس — العضو محتاجها عشان يشوف زمايله
+  // في صفحة "الشات" (اختيار مين يبعتله رسالة خاصة) وحالة الاتصال، مش بس المدير
   const jobs = [
     apiFetch('/tasks').then(d => { state.tasks = d.tasks || []; }),
     apiFetch('/reports').then(d => { state.reports = d.reports || []; }),
-    apiFetch('/learning').then(d => { state.learning = d.learning || []; })
+    apiFetch('/learning').then(d => { state.learning = d.learning || []; }),
+    apiFetch('/users').then(d => { state.users = d.users || []; })
   ];
-  if(isAdmin){
-    jobs.push(apiFetch('/users').then(d => { state.users = d.users || []; }));
-  }
   await Promise.all(jobs);
   if(isAdmin){
     // إعادة تقييم التقصير على السيرفر (بيوقف تلقائيًا مين وصل 6 أيام تقصير في الشهر)
@@ -916,6 +931,34 @@ async function refreshData(){
 /* ============================================================
    HELPERS
    ============================================================ */
+/* ============================================================
+   حالة الاتصال (Presence) — نبضة كل 45 ثانية تحدّث "آخر ظهور" بتاعتنا،
+   + تحديث دوري لقائمة الأعضاء كل 30 ثانية عشان نشوف حالة زمايلنا محدّثة
+   ============================================================ */
+let presenceHeartbeatTimer = null;
+let presencePollTimer = null;
+function startPresence(){
+  stopPresence();
+  authHeartbeat().catch(() => {});
+  presenceHeartbeatTimer = setInterval(() => authHeartbeat().catch(() => {}), 45000);
+  presencePollTimer = setInterval(async () => {
+    try {
+      const d = await apiFetch('/users');
+      state.users = d.users || [];
+      refreshPresenceUI();
+    } catch (err) { /* فشل هادئ أثناء التحديث الدوري */ }
+  }, 30000);
+  document.addEventListener('visibilitychange', onVisibilityPingPresence);
+}
+function stopPresence(){
+  if(presenceHeartbeatTimer){ clearInterval(presenceHeartbeatTimer); presenceHeartbeatTimer = null; }
+  if(presencePollTimer){ clearInterval(presencePollTimer); presencePollTimer = null; }
+  document.removeEventListener('visibilitychange', onVisibilityPingPresence);
+}
+function onVisibilityPingPresence(){
+  if(document.visibilityState === 'visible') authHeartbeat().catch(() => {});
+}
+
 const $ = (sel, ctx) => (ctx||document).querySelector(sel);
 const $$ = (sel, ctx) => Array.from((ctx||document).querySelectorAll(sel));
 const escapeHtml = (str) => String(str==null?'':str).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
@@ -1011,6 +1054,56 @@ function avatarHtml(user, size){
   return `<div class="${cls}">${escapeHtml(initials(user ? user.name : '?'))}</div>`;
 }
 
+/* حالة الاتصال: "متصل الآن" لو آخر نبضة (heartbeat) خلال آخر 90 ثانية، وإلا "آخر ظهور ..." */
+const PRESENCE_ONLINE_WINDOW_MS = 90 * 1000;
+function isOnline(user){
+  if(!user || !user.lastSeenAt) return false;
+  return (Date.now() - new Date(user.lastSeenAt).getTime()) < PRESENCE_ONLINE_WINDOW_MS;
+}
+function presenceLabel(user){
+  if(isOnline(user)) return 'متصل الآن';
+  if(!user || !user.lastSeenAt) return 'لم يفتح المنصة بعد';
+  const diffMin = Math.floor((Date.now() - new Date(user.lastSeenAt).getTime()) / 60000);
+  if(diffMin < 1) return 'آخر ظهور: الآن';
+  if(diffMin < 60) return `آخر ظهور: منذ ${diffMin} دقيقة`;
+  const diffHr = Math.floor(diffMin / 60);
+  if(diffHr < 24) return `آخر ظهور: منذ ${diffHr} ساعة`;
+  const diffDay = Math.floor(diffHr / 24);
+  return `آخر ظهور: منذ ${diffDay} يوم`;
+}
+/* دائرة صغيرة فوق الأفاتار بتلوّن حسب حالة الاتصال */
+function avatarWithPresence(user, size){
+  const online = isOnline(user);
+  return `<span class="presence-wrap" data-presence-user="${user ? user.id : ''}" title="${presenceLabel(user)}">
+    ${avatarHtml(user, size)}
+    <span class="presence-dot ${online ? 'online' : ''}"></span>
+  </span>`;
+}
+/* شارة نصية (نقطة + كلام) تُستخدم في القوائم اللي مش شايلة أفاتار كبيرة */
+function presenceLabelHtml(user){
+  const online = isOnline(user);
+  return `<span class="presence-label ${online ? 'online' : ''}" data-presence-label-user="${user ? user.id : ''}">${presenceLabel(user)}</span>`;
+}
+/* تحدّث كل نقاط/تسميات حالة الاتصال المعروضة حاليًا في الصفحة من غير ما تعيد رسم الصفحة كلها
+   (عشان ما نبوظش تركيز حقل إدخال أو حاجة المستخدم بيكتبها وقت التحديث الدوري) */
+function refreshPresenceUI(){
+  $$('[data-presence-user]').forEach(el => {
+    const id = Number(el.dataset.presenceUser);
+    const user = findUser(id);
+    if(!user) return;
+    const dot = el.querySelector('.presence-dot');
+    if(dot) dot.classList.toggle('online', isOnline(user));
+    el.title = presenceLabel(user);
+  });
+  $$('[data-presence-label-user]').forEach(el => {
+    const id = Number(el.dataset.presenceLabelUser);
+    const user = findUser(id);
+    if(!user) return;
+    el.textContent = presenceLabel(user);
+    el.classList.toggle('online', isOnline(user));
+  });
+}
+
 /* ============================================================
    AUTH — تسجيل الدخول / إنشاء حساب / تسجيل الخروج
    ============================================================ */
@@ -1096,6 +1189,7 @@ $('#registerForm').addEventListener('submit', async (e) => {
 
 async function logout(){
   stopChatPolling();
+  stopPresence();
   await sb.auth.signOut();
   setToken(null);
   state.currentUser = null;
@@ -1144,6 +1238,7 @@ async function enterApp(showWelcome){
   } catch (err) {
     toast(err.message, 'err');
   }
+  startPresence();
   renderSidebar();
   renderTopbar();
   renderPage();
@@ -1775,12 +1870,12 @@ function pageChat(){
         </button>
         ${others.map(u => `
           <button type="button" class="chat-target-btn ${String(chatSelectedTarget)===String(u.id)?'active':''}" data-target="${u.id}">
-            ${avatarHtml(u)} <span>${escapeHtml(u.name)}${u.role==='admin'?' (مدير)':''}</span>
+            ${avatarWithPresence(u)} <span>${escapeHtml(u.name)}${u.role==='admin'?' (مدير)':''}</span>
           </button>
         `).join('') || '<p style="font-size:12.5px;color:var(--text-400);padding:8px;">لا يوجد أعضاء تانيين بعد</p>'}
       </div>
       <div class="card chat-main">
-        <div class="chat-header">${chatSelectedTarget==='team' ? `${ICONS.chat} الفريق كله` : `🔒 ${escapeHtml(targetUser ? targetUser.name : '')} — رسالة خاصة`}</div>
+        <div class="chat-header">${chatSelectedTarget==='team' ? `${ICONS.chat} الفريق كله` : `🔒 ${escapeHtml(targetUser ? targetUser.name : '')} — رسالة خاصة ${targetUser ? `· ${presenceLabelHtml(targetUser)}` : ''}`}</div>
         <div class="chat-messages" id="chatMessagesWrap"><p class="chat-empty">جاري تحميل الرسائل...</p></div>
         <form id="chatSendForm" class="chat-send-form">
           <input type="text" id="chatInput" placeholder="اكتب رسالة..." autocomplete="off" required>
@@ -1910,7 +2005,7 @@ function pageMembers(){
               const isSelf = u.id === state.currentUser.id;
               return `
               <tr>
-                <td class="cell-user">${avatarHtml(u)} <div><div style="font-weight:700;">${escapeHtml(u.name)}</div><div style="font-size:12px;color:var(--text-400);">${escapeHtml(u.email)}</div></div></td>
+                <td class="cell-user">${avatarWithPresence(u)} <div><div style="font-weight:700;">${escapeHtml(u.name)}</div><div style="font-size:12px;color:var(--text-400);">${escapeHtml(u.email)}</div>${presenceLabelHtml(u)}</div></td>
                 <td>
                   <select class="role-select" data-id="${u.id}" ${isSelf ? 'disabled' : ''} aria-label="صلاحية العضو">
                     <option value="member" ${u.role==='member'?'selected':''}>عضو</option>
