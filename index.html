@@ -904,8 +904,16 @@ async function messagesDelete(id){
   return { message: 'تم حذف الرسالة' };
 }
 
-/* إعادة حساب أيام التقصير لكل الأعضاء النشطين على السيرفر (يوقف تلقائيًا من وصل 6 أيام) */
-async function negligenceRecalcAll(){
+/* إعادة حساب أيام التقصير لكل الأعضاء النشطين على السيرفر (يوقف تلقائيًا من وصل 6 أيام)
+   ده استعلام تقيل (بيلف يوم بيوم على كل عضو نشط)، فمش لازم يتنفّذ بالكامل
+   مع كل ضغطة تنقل بين الصفحات. نخليه ياخد فرصة كل دقيقتين بالكتير، إلا لو
+   طلبنا تنفيذه فورًا (force) — زي لما المدير يفتح صفحة "التقارير" تحديدًا
+   واللي محتاجة فعلًا الأرقام الأحدث */
+let lastNegligenceRecalcAt = 0;
+async function negligenceRecalcAll(force){
+  const now = Date.now();
+  if(!force && (now - lastNegligenceRecalcAt) < 120000) return;
+  lastNegligenceRecalcAt = now;
   const { error } = await sb.rpc('recalc_negligence_all');
   if(error) console.warn('تعذّر إعادة حساب التقصير:', error.message);
 }
@@ -1085,16 +1093,8 @@ const state = {
 };
 
 /* يجلب البيانات المطلوبة لعرض الصفحة الحالية من الباك إند */
-async function refreshData(page){
+async function refreshData(){
   const isAdmin = state.currentUser && state.currentUser.role === 'admin';
-
-  // صفحة "الإعدادات" مش محتاجة أي بيانات من الصفحات التانية (مهام/تقارير/تعليم/
-  // مصادر/أعضاء) — كنا بنجيبهم كلهم برضه من غير أي داعي وده كان بيبطّئ فتحها
-  if(page === 'settings'){
-    try { const d = await apiFetch('/notifications'); state.notifications = d.notifications || []; } catch (err) {}
-    return;
-  }
-
   // /users لازم تتجاب لكل الأعضاء مش المدير بس — العضو محتاجها عشان يشوف زمايله
   // في صفحة "الشات" (اختيار مين يبعتله رسالة خاصة) وحالة الاتصال، مش بس المدير
   const jobs = [
@@ -1107,14 +1107,10 @@ async function refreshData(page){
     apiFetch('/notifications').then(d => { state.notifications = d.notifications || []; }).catch(() => {})
   ];
   await Promise.all(jobs);
-
-  // إعادة حساب التقصير عملية تقيلة على قاعدة البيانات (بتلف يوم بيوم على كل
-  // الأعضاء النشطين). قبل كده كانت بتتنفذ مع كل ضغطة تنقل بين أي صفحتين حتى
-  // لو مالهاش علاقة بالتقصير خالص. دلوقتي بتتنفذ بس: (أ) لما تُستدعى من غير
-  // تحديد صفحة (يعني بعد أكشن فعلي زي اعتماد تأجيل أو تفعيل عضو)، أو
-  // (ب) لما فعلاً تفتح صفحة "التقارير" أو "الأعضاء" كمدير
-  if(isAdmin && (page === undefined || page === 'reports' || page === 'members')){
-    await negligenceRecalcAll();
+  if(isAdmin){
+    // إعادة تقييم التقصير على السيرفر (بيوقف تلقائيًا مين وصل 6 أيام تقصير في الشهر)
+    // — تُفرض فورًا بس في صفحة "التقارير"، وباقي الصفحات بتاخد النسخة المؤجّلة (throttled)
+    await negligenceRecalcAll(state.activePage === 'reports');
     const d = await apiFetch('/users');
     state.users = d.users || [];
   }
@@ -1515,6 +1511,11 @@ async function enterApp(showWelcome){
   $('#authScreen').classList.add('hidden');
   $('#appScreen').classList.remove('hidden');
   state.activePage = resolveActivePage();
+  // نرسم الواجهة فورًا (حتى لو فاضية أول مرة) بدل ما ننتظر كل طلبات
+  // البيانات تخلص الأول — كده المستخدم يشوف الموقع فتح فعلًا بسرعة
+  renderSidebar();
+  renderTopbar();
+  renderPage();
   try {
     await refreshData();
   } catch (err) {
@@ -1550,10 +1551,12 @@ async function tryRestoreSession(){
   try {
     const data = await apiFetch('/auth/me');
     state.currentUser = data.user;
+    // بمجرد ما نتأكد إن الجلسة صحيحة، نقفل شاشة "جاري التحقق من الجلسة"
+    // فورًا — بدل ما نستنى تحميل كل بيانات الموقع (اللي ممكن تاخد ثواني)
+    $('#sessionCheckOverlay').classList.add('hidden');
     await enterApp(false);
   } catch (err) {
     setToken(null);
-  } finally {
     $('#sessionCheckOverlay').classList.add('hidden');
   }
 }
@@ -1572,20 +1575,17 @@ function renderSidebar(){
 
   $$('#navList .nav-item').forEach(btn => {
     btn.addEventListener('click', async () => {
-      const targetPage = btn.dataset.page;
-      state.activePage = targetPage;
+      state.activePage = btn.dataset.page;
       localStorage.setItem(ACTIVE_PAGE_KEY, state.activePage);
       closeSidebarMobile();
       renderSidebar();
       renderTopbar();
-      // اعرض الصفحة فورًا بالبيانات المتاحة عندنا حاليًا (حتى لو مش أحدث حاجة)
-      // بدل ما نسيب العنوان يتغيّر والمحتوى يفضل واقف على الصفحة القديمة لحد
-      // ما كل الطلبات تخلص — ده كان سبب مشكلة "دايس على صفحة وبتفتح تانية"
+      // اعرض الصفحة فورًا بالبيانات المتاحة حاليًا في الكاش، بدل ما ننتظر
+      // تحميل كل بيانات الموقع (7+ استعلامات) قبل ما نغيّر المحتوى — ده كان
+      // السبب في إن الضغط على "الإعدادات" (مثلًا) يغيّر العنوان فورًا بس
+      // يسيب محتوى الصفحة القديمة (الشات) شغال وظاهر لحد ما التحميل يخلص
       renderPage();
-      try {
-        await refreshData(targetPage);
-        if(state.activePage === targetPage) renderPage(); // حدّث بالبيانات الجديدة، وبس لو لسه واقف في نفس الصفحة
-      } catch (err) { toast(err.message, 'err'); }
+      try { await refreshData(); renderPage(); } catch (err) { toast(err.message, 'err'); }
     });
   });
 
