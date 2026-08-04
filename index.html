@@ -450,7 +450,9 @@
   </div>
 </div>
 
-<script>
+<script type="module">
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
 (function(){
 "use strict";
 
@@ -478,46 +480,195 @@ const ICONS = {
 };
 
 /* ============================================================
-   API — اتصال حقيقي بالباك إند (Node.js + Express + SQLite)
+   API — اتصال مباشر بـ Supabase (Auth + Postgres + Row Level Security)
    ============================================================
-   عدّل القيمة التالية إذا كان الباك إند يعمل على عنوان مختلف
-   (مثلًا بعد النشر). يمكن أيضًا ضبطها من الكونسول عبر:
-   localStorage.setItem('teamflow_api_base', 'https://your-api.com/api')
+   عدّل القيمتين التاليتين ببيانات مشروعك على supabase.com
+   (Project Settings → API → Project URL / anon public key)
    ============================================================ */
-const API_BASE = localStorage.getItem('teamflow_api_base') || 'https://pkpeglpoyeeiaobfoqnv.supabase.co/rest/v1/';
-const TOKEN_KEY = 'teamflow_token';
+const SUPABASE_URL = 'https://YOUR-PROJECT-REF.supabase.co';
+const SUPABASE_ANON_KEY = 'YOUR-ANON-PUBLIC-KEY';
 
-function getToken(){ return localStorage.getItem(TOKEN_KEY); }
+const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+function getToken(){ return localStorage.getItem('teamflow_session_flag'); }
 function setToken(token){
-  if(token) localStorage.setItem(TOKEN_KEY, token);
-  else localStorage.removeItem(TOKEN_KEY);
+  if(token) localStorage.setItem('teamflow_session_flag', '1');
+  else localStorage.removeItem('teamflow_session_flag');
 }
 
+async function fetchAppUser(){
+  const { data: { session } } = await sb.auth.getSession();
+  if(!session) return null;
+  const { data, error } = await sb.from('users').select('*').eq('authId', session.user.id).single();
+  if(error || !data) return null;
+  return data;
+}
+
+async function authLogin({ email, password }){
+  const { error: signInErr } = await sb.auth.signInWithPassword({ email, password });
+  if(signInErr) throw new Error('بيانات الدخول غير صحيحة');
+  const appUser = await fetchAppUser();
+  if(!appUser){ await sb.auth.signOut(); throw new Error('الحساب غير موجود في النظام'); }
+  if(appUser.status === 'pending'){ await sb.auth.signOut(); throw new Error('حسابك بانتظار موافقة المدير'); }
+  if(appUser.status === 'disabled'){ await sb.auth.signOut(); throw new Error('تم تعطيل حسابك، تواصل مع المدير'); }
+  return { token: 'session', user: appUser };
+}
+
+async function authRegister({ name, email, password }){
+  const { error } = await sb.auth.signUp({ email, password, options: { data: { name } } });
+  if(error){
+    const msg = String(error.message || '').toLowerCase();
+    if(msg.includes('already') || msg.includes('registered')) throw new Error('هذا البريد الإلكتروني مسجّل بالفعل');
+    throw new Error('تعذّر إنشاء الحساب، حاول مرة أخرى');
+  }
+  await sb.auth.signOut(); // الحساب Pending لحد موافقة المدير
+  return {};
+}
+
+async function authMe(){
+  const appUser = await fetchAppUser();
+  if(!appUser) throw new Error('غير مسجل الدخول');
+  if(appUser.status !== 'active'){ await sb.auth.signOut(); throw new Error('حسابك غير مفعّل'); }
+  return { user: appUser };
+}
+
+async function authChangePassword({ currentPassword, newPassword }){
+  const { data: { session } } = await sb.auth.getSession();
+  if(!session) throw new Error('غير مسجل الدخول');
+  const { error: verifyErr } = await sb.auth.signInWithPassword({ email: session.user.email, password: currentPassword });
+  if(verifyErr) throw new Error('كلمة المرور الحالية غير صحيحة');
+  const { error } = await sb.auth.updateUser({ password: newPassword });
+  if(error) throw new Error('تعذّر تغيير كلمة المرور');
+  return {};
+}
+
+async function authUpdateAvatar({ avatar }){
+  const { data: { session } } = await sb.auth.getSession();
+  if(!session) throw new Error('غير مسجل الدخول');
+  const { data, error } = await sb.from('users').update({ avatar }).eq('authId', session.user.id).select().single();
+  if(error) throw new Error('تعذّر تحديث الصورة');
+  return { user: data };
+}
+
+async function tasksList(){
+  const { data, error } = await sb.from('tasks').select('*').order('createdAt', { ascending: false });
+  if(error) throw new Error('تعذّر تحميل المهام');
+  return { tasks: data };
+}
+async function tasksCreate(p){
+  const { data, error } = await sb.from('tasks').insert({
+    title: p.title, description: p.description, assignedTo: p.assignedTo,
+    priority: p.priority, dueDate: p.dueDate, status: 'قيد التنفيذ'
+  }).select().single();
+  if(error) throw new Error(error.message.includes('غير') ? error.message : 'تعذّر إنشاء المهمة');
+  return { task: data };
+}
+async function tasksUpdate(id, p){
+  const { data, error } = await sb.from('tasks')
+    .update({ title: p.title, description: p.description, assignedTo: p.assignedTo, priority: p.priority, dueDate: p.dueDate })
+    .eq('id', id).select().single();
+  if(error) throw new Error('تعذّر تحديث المهمة');
+  return { task: data };
+}
+async function tasksUpdateStatus(id, { status }){
+  const { data, error } = await sb.from('tasks').update({ status }).eq('id', id).select().single();
+  if(error) throw new Error('تعذّر تحديث حالة المهمة');
+  return { task: data };
+}
+async function tasksDelete(id){
+  const { error } = await sb.from('tasks').delete().eq('id', id);
+  if(error) throw new Error('تعذّر حذف المهمة');
+  return { message: 'تم حذف المهمة' };
+}
+
+async function reportsList(){
+  const { data, error } = await sb.from('reports').select('*').order('createdAt', { ascending: false });
+  if(error) throw new Error('تعذّر تحميل التقارير');
+  return { reports: data };
+}
+async function reportsCreate(p){
+  const appUser = await fetchAppUser();
+  const { data, error } = await sb.from('reports').insert({
+    status: p.status, description: p.description, taskId: p.taskId || null, userId: appUser.id
+  }).select().single();
+  if(error) throw new Error('تعذّر حفظ التقرير');
+  return { report: data };
+}
+
+async function usersList(){
+  const { data, error } = await sb.from('users').select('*').order('createdAt', { ascending: false });
+  if(error) throw new Error('تعذّر تحميل الأعضاء');
+  return { users: data };
+}
+async function usersCreate(p){
+  const tempClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
+  });
+  const { data: signUpData, error } = await tempClient.auth.signUp({
+    email: p.email, password: p.password, options: { data: { name: p.name } }
+  });
+  if(error){
+    const msg = String(error.message || '').toLowerCase();
+    if(msg.includes('already') || msg.includes('registered')) throw new Error('هذا البريد الإلكتروني مسجّل بالفعل');
+    throw new Error('تعذّر إنشاء الحساب');
+  }
+  await new Promise(r => setTimeout(r, 500)); // انتظار تنفيذ الـ trigger اللي بينشئ صف users
+  const authId = signUpData.user ? signUpData.user.id : null;
+  if(!authId) throw new Error('تعذّر إنشاء الحساب');
+  const { data, error: updErr } = await sb.from('users')
+    .update({ status: 'active', role: p.role === 'admin' ? 'admin' : 'member' })
+    .eq('authId', authId).select().single();
+  if(updErr) throw new Error('تم إنشاء الحساب لكن يلزم تفعيله يدويًا من "الأعضاء"');
+  return { user: data };
+}
+async function usersApprove(id){
+  const { data, error } = await sb.from('users').update({ status: 'active' }).eq('id', id).eq('status', 'pending').select().single();
+  if(error || !data) throw new Error('تعذّر تنفيذ العملية');
+  return { message: `تمت الموافقة على ${data.name}` };
+}
+async function usersToggleStatus(id){
+  const { data: existing, error: exErr } = await sb.from('users').select('*').eq('id', id).single();
+  if(exErr || !existing) throw new Error('العضو غير موجود');
+  if(existing.status === 'pending') throw new Error('لا يمكن تفعيل/تعطيل طلب بانتظار الموافقة');
+  const newStatus = existing.status === 'active' ? 'disabled' : 'active';
+  const { data, error } = await sb.from('users').update({ status: newStatus }).eq('id', id).select().single();
+  if(error) throw new Error(error.message || 'تعذّر تحديث حالة العضو');
+  return { message: newStatus === 'active' ? `تم تفعيل ${data.name}` : `تم تعطيل ${data.name}` };
+}
+async function usersDelete(id){
+  const { error } = await sb.from('users').delete().eq('id', id);
+  if(error) throw new Error(error.message || 'تعذّر حذف العضو');
+  return { message: 'تم حذف العضو' };
+}
+
+/* موجّه بسيط يحافظ على نفس الشكل اللي بقية الكود بيستخدمه (apiFetch(path, options)) */
 async function apiFetch(path, options = {}){
-  const headers = Object.assign({ 'Content-Type': 'application/json' }, options.headers || {});
-  const token = getToken();
-  if(token) headers['Authorization'] = 'Bearer ' + token;
+  const method = (options.method || 'GET').toUpperCase();
+  const body = options.body ? JSON.parse(options.body) : {};
+  let m;
 
-  let res;
-  try {
-    res = await fetch(API_BASE + path, Object.assign({}, options, { headers }));
-  } catch (networkErr) {
-    throw new Error(`تعذّر الاتصال بالخادم. تأكد من أن الباك إند يعمل على ${API_BASE}`);
-  }
+  if(path === '/auth/register' && method === 'POST') return authRegister(body);
+  if(path === '/auth/login' && method === 'POST') return authLogin(body);
+  if(path === '/auth/me' && method === 'GET') return authMe();
+  if(path === '/auth/change-password' && method === 'PUT') return authChangePassword(body);
+  if(path === '/auth/avatar' && method === 'PUT') return authUpdateAvatar(body);
 
-  let data = null;
-  try { data = await res.json(); } catch (e) { /* استجابة بدون محتوى */ }
+  if(path === '/tasks' && method === 'GET') return tasksList();
+  if(path === '/tasks' && method === 'POST') return tasksCreate(body);
+  if((m = path.match(/^\/tasks\/(\d+)\/status$/)) && method === 'PUT') return tasksUpdateStatus(Number(m[1]), body);
+  if((m = path.match(/^\/tasks\/(\d+)$/)) && method === 'PUT') return tasksUpdate(Number(m[1]), body);
+  if((m = path.match(/^\/tasks\/(\d+)$/)) && method === 'DELETE') return tasksDelete(Number(m[1]));
 
-  if(!res.ok){
-    if(res.status === 401){
-      // جلسة منتهية أو غير صالحة
-      setToken(null);
-    }
-    const err = new Error((data && data.error) || 'حدث خطأ غير متوقع، حاول مرة أخرى');
-    err.status = res.status;
-    throw err;
-  }
-  return data || {};
+  if(path === '/reports' && method === 'GET') return reportsList();
+  if(path === '/reports' && method === 'POST') return reportsCreate(body);
+
+  if(path === '/users' && method === 'GET') return usersList();
+  if(path === '/users' && method === 'POST') return usersCreate(body);
+  if((m = path.match(/^\/users\/(\d+)\/approve$/)) && method === 'PUT') return usersApprove(Number(m[1]));
+  if((m = path.match(/^\/users\/(\d+)\/toggle-status$/)) && method === 'PUT') return usersToggleStatus(Number(m[1]));
+  if((m = path.match(/^\/users\/(\d+)$/)) && method === 'DELETE') return usersDelete(Number(m[1]));
+
+  throw new Error('مسار غير مدعوم: ' + path);
 }
 
 /* ============================================================
@@ -681,7 +832,8 @@ $('#registerForm').addEventListener('submit', async (e) => {
   }
 });
 
-function logout(){
+async function logout(){
+  await sb.auth.signOut();
   setToken(null);
   state.currentUser = null;
   state.users = [];
@@ -735,8 +887,8 @@ async function enterApp(showWelcome){
 
 /* استعادة الجلسة تلقائيًا إذا كان هناك توكن محفوظ من زيارة سابقة */
 async function tryRestoreSession(){
-  const token = getToken();
-  if(!token){
+  const { data: { session } } = await sb.auth.getSession();
+  if(!session){
     $('#sessionCheckOverlay').classList.add('hidden');
     return;
   }
