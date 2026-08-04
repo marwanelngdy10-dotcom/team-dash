@@ -1085,8 +1085,16 @@ const state = {
 };
 
 /* يجلب البيانات المطلوبة لعرض الصفحة الحالية من الباك إند */
-async function refreshData(){
+async function refreshData(page){
   const isAdmin = state.currentUser && state.currentUser.role === 'admin';
+
+  // صفحة "الإعدادات" مش محتاجة أي بيانات من الصفحات التانية (مهام/تقارير/تعليم/
+  // مصادر/أعضاء) — كنا بنجيبهم كلهم برضه من غير أي داعي وده كان بيبطّئ فتحها
+  if(page === 'settings'){
+    try { const d = await apiFetch('/notifications'); state.notifications = d.notifications || []; } catch (err) {}
+    return;
+  }
+
   // /users لازم تتجاب لكل الأعضاء مش المدير بس — العضو محتاجها عشان يشوف زمايله
   // في صفحة "الشات" (اختيار مين يبعتله رسالة خاصة) وحالة الاتصال، مش بس المدير
   const jobs = [
@@ -1099,8 +1107,13 @@ async function refreshData(){
     apiFetch('/notifications').then(d => { state.notifications = d.notifications || []; }).catch(() => {})
   ];
   await Promise.all(jobs);
-  if(isAdmin){
-    // إعادة تقييم التقصير على السيرفر (بيوقف تلقائيًا مين وصل 6 أيام تقصير في الشهر)
+
+  // إعادة حساب التقصير عملية تقيلة على قاعدة البيانات (بتلف يوم بيوم على كل
+  // الأعضاء النشطين). قبل كده كانت بتتنفذ مع كل ضغطة تنقل بين أي صفحتين حتى
+  // لو مالهاش علاقة بالتقصير خالص. دلوقتي بتتنفذ بس: (أ) لما تُستدعى من غير
+  // تحديد صفحة (يعني بعد أكشن فعلي زي اعتماد تأجيل أو تفعيل عضو)، أو
+  // (ب) لما فعلاً تفتح صفحة "التقارير" أو "الأعضاء" كمدير
+  if(isAdmin && (page === undefined || page === 'reports' || page === 'members')){
     await negligenceRecalcAll();
     const d = await apiFetch('/users');
     state.users = d.users || [];
@@ -1559,13 +1572,20 @@ function renderSidebar(){
 
   $$('#navList .nav-item').forEach(btn => {
     btn.addEventListener('click', async () => {
-      state.activePage = btn.dataset.page;
+      const targetPage = btn.dataset.page;
+      state.activePage = targetPage;
       localStorage.setItem(ACTIVE_PAGE_KEY, state.activePage);
       closeSidebarMobile();
       renderSidebar();
       renderTopbar();
-      try { await refreshData(); } catch (err) { toast(err.message, 'err'); }
+      // اعرض الصفحة فورًا بالبيانات المتاحة عندنا حاليًا (حتى لو مش أحدث حاجة)
+      // بدل ما نسيب العنوان يتغيّر والمحتوى يفضل واقف على الصفحة القديمة لحد
+      // ما كل الطلبات تخلص — ده كان سبب مشكلة "دايس على صفحة وبتفتح تانية"
       renderPage();
+      try {
+        await refreshData(targetPage);
+        if(state.activePage === targetPage) renderPage(); // حدّث بالبيانات الجديدة، وبس لو لسه واقف في نفس الصفحة
+      } catch (err) { toast(err.message, 'err'); }
     });
   });
 
