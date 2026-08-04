@@ -452,6 +452,40 @@
   </div>
 </div>
 
+<!-- ============ LEARNING MODAL (مدير فقط) ============ -->
+<div class="modal-overlay hidden" id="learningModalOverlay">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>مادة تعلم جديدة</h3>
+      <button class="modal-close" id="learningModalClose"></button>
+    </div>
+    <div class="modal-body">
+      <form id="learningForm">
+        <div class="form-row">
+          <label for="learningAssignee">تحديد لعضو</label>
+          <select id="learningAssignee" required></select>
+        </div>
+        <div class="form-row">
+          <label for="learningTitle">عنوان مادة التعلم</label>
+          <input type="text" id="learningTitle" required placeholder="مثال: دورة أساسيات SQL">
+        </div>
+        <div class="form-row">
+          <label for="learningDesc">الوصف</label>
+          <textarea id="learningDesc" placeholder="تفاصيل مادة التعلم..."></textarea>
+        </div>
+        <div class="form-row">
+          <label for="learningLink">رابط (اختياري)</label>
+          <input type="url" id="learningLink" placeholder="https://...">
+        </div>
+        <div class="modal-foot">
+          <button type="button" class="btn btn-ghost" id="learningCancelBtn">إلغاء</button>
+          <button type="submit" class="btn btn-primary">حفظ مادة التعلم</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
 <script type="module">
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
@@ -691,6 +725,31 @@ async function tasksUploadAttachment(taskId, file){
   return { task: data };
 }
 
+/* مواد التعلم — كل عضو يشوف اللي مخصص له بس (يتم فرضه من RLS في قاعدة البيانات) */
+async function learningList(){
+  const { data, error } = await sb.from('learning_items').select('*').order('createdAt', { ascending: false });
+  if(error) throw new Error('تعذّر تحميل مواد التعلم');
+  return { learning: data };
+}
+async function learningCreate(p){
+  const { data, error } = await sb.from('learning_items').insert({
+    title: p.title, description: p.description || null, link: p.link || null,
+    assignedTo: p.assignedTo, createdBy: state.currentUser ? state.currentUser.id : null
+  }).select().single();
+  if(error) throw new Error(error.message && error.message.includes('غير') ? error.message : 'تعذّر إضافة مادة التعلم');
+  return { item: data };
+}
+async function learningUpdateStatus(id, status){
+  const { data, error } = await sb.from('learning_items').update({ status }).eq('id', id).select().single();
+  if(error) throw new Error('تعذّر تحديث حالة مادة التعلم');
+  return { item: data };
+}
+async function learningDelete(id){
+  const { error } = await sb.from('learning_items').delete().eq('id', id);
+  if(error) throw new Error(error.message || 'تعذّر حذف مادة التعلم');
+  return { message: 'تم حذف مادة التعلم' };
+}
+
 /* موجّه بسيط يحافظ على نفس الشكل اللي بقية الكود بيستخدمه (apiFetch(path, options)) */
 async function apiFetch(path, options = {}){
   const method = (options.method || 'GET').toUpperCase();
@@ -722,6 +781,11 @@ async function apiFetch(path, options = {}){
   if((m = path.match(/^\/users\/(\d+)\/role$/)) && method === 'PUT') return usersUpdateRole(Number(m[1]), body.role);
   if((m = path.match(/^\/users\/(\d+)$/)) && method === 'DELETE') return usersDelete(Number(m[1]));
 
+  if(path === '/learning' && method === 'GET') return learningList();
+  if(path === '/learning' && method === 'POST') return learningCreate(body);
+  if((m = path.match(/^\/learning\/(\d+)\/status$/)) && method === 'PUT') return learningUpdateStatus(Number(m[1]), body.status);
+  if((m = path.match(/^\/learning\/(\d+)$/)) && method === 'DELETE') return learningDelete(Number(m[1]));
+
   throw new Error('مسار غير مدعوم: ' + path);
 }
 
@@ -733,7 +797,8 @@ const state = {
   activePage: 'tasks',
   users: [],
   tasks: [],
-  reports: []
+  reports: [],
+  learning: []
 };
 
 /* يجلب البيانات المطلوبة لعرض الصفحة الحالية من الباك إند */
@@ -741,7 +806,8 @@ async function refreshData(){
   const isAdmin = state.currentUser && state.currentUser.role === 'admin';
   const jobs = [
     apiFetch('/tasks').then(d => { state.tasks = d.tasks || []; }),
-    apiFetch('/reports').then(d => { state.reports = d.reports || []; })
+    apiFetch('/reports').then(d => { state.reports = d.reports || []; }),
+    apiFetch('/learning').then(d => { state.learning = d.learning || []; })
   ];
   if(isAdmin){
     jobs.push(apiFetch('/users').then(d => { state.users = d.users || []; }));
@@ -968,6 +1034,7 @@ $$('.pwd-toggle').forEach(btn => btn.innerHTML = ICONS.eye);
 const NAV_ITEMS = [
   {key:'tasks', label:'المهام', icon:'tasks'},
   {key:'reports', label:'التقارير', icon:'reports'},
+  {key:'learning', label:'التعليم', icon:'bulb'},
   {key:'members', label:'الأعضاء', icon:'members', adminOnly:true},
   {key:'settings', label:'الإعدادات', icon:'settings'}
 ];
@@ -1063,6 +1130,7 @@ function renderPage(){
   const content = $('#pageContent');
   if(state.activePage === 'tasks') content.innerHTML = pageTasks();
   else if(state.activePage === 'reports') content.innerHTML = pageReports();
+  else if(state.activePage === 'learning') content.innerHTML = pageLearning();
   else if(state.activePage === 'members') content.innerHTML = pageMembers();
   else if(state.activePage === 'settings') content.innerHTML = pageSettings();
   bindPageEvents();
@@ -1232,6 +1300,21 @@ function reportTimelineItem(r, isAdmin){
   `;
 }
 
+/* offset بالأشهر عن الشهر الحالي (0 = الشهر الحالي، 1 = اللي قبله...) — يُستخدم لعرض
+   سجل التسجيل/الانتظام لأي شهر سابق لكل عضو، مش الشهر الحالي بس */
+let reportsMonthOffset = 0;
+function monthOffsetDate(offset){
+  const d = new Date();
+  d.setDate(1);
+  d.setMonth(d.getMonth() - offset);
+  return d;
+}
+function monthOffsetLabel(offset){
+  const d = monthOffsetDate(offset);
+  const label = d.toLocaleDateString('ar-EG', { month:'long', year:'numeric' });
+  return offset === 0 ? `${label} (الشهر الحالي)` : label;
+}
+
 function reportsAdminView(){
   const total = state.reports.length;
   const counts = {
@@ -1244,8 +1327,9 @@ function reportsAdminView(){
     .map(m => ({name:m.name, id:m.id, count: negligenceCount(m.id)}))
     .sort((a,b) => b.count - a.count);
 
+  const selectedMonth = monthOffsetDate(reportsMonthOffset);
   const monthlyRows = members
-    .map(m => ({ id:m.id, name:m.name, status:m.status, suspendedAuto: m.suspendedAuto, ...monthlyNegligentDays(m.id, new Date()) }))
+    .map(m => ({ id:m.id, name:m.name, status:m.status, suspendedAuto: m.suspendedAuto, ...monthlyNegligentDays(m.id, selectedMonth) }))
     .sort((a,b) => b.days - a.days);
 
   const pendingPostpone = state.reports
@@ -1283,14 +1367,23 @@ function reportsAdminView(){
     </div>
 
     <div class="section-block">
-      <h3 class="section-title">أيام التقصير في الحضور اليومي (الشهر الحالي)</h3>
-      <p style="color:var(--text-600); font-size:13px; margin-top:-8px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+        <h3 class="section-title" style="margin:0;">أيام التقصير والانتظام في التسجيل</h3>
+        <div class="form-row" style="max-width:220px; margin:0;">
+          <label for="reportsMonthSelect">الشهر</label>
+          <select id="reportsMonthSelect">
+            ${Array.from({length:6}, (_,i) => `<option value="${i}" ${i===reportsMonthOffset?'selected':''}>${monthOffsetLabel(i)}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <p style="color:var(--text-600); font-size:13px; margin-top:8px;">
         يُحتسب اليوم "تقصير" لو العضو ما سجّلش تقرير خالص، أو سجّله بعد الساعة 1 الظهر.
-        عند الوصول لـ 6 أيام تقصير في الشهر يتم إيقاف العضو تلقائيًا، والمدير هو الوحيد اللي يقدر يرجّعه من صفحة الأعضاء.
+        عند الوصول لـ 6 أيام تقصير في الشهر يتم إيقاف العضو تلقائيًا (المدير مستثنى من هذا الاحتساب)، والمدير هو الوحيد اللي يقدر يرجّعه من صفحة الأعضاء.
+        اختر أي شهر سابق من القائمة فوق عشان تراجع انتظام أي عضو خلال الشهور اللي فاتت.
       </p>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>العضو</th><th>أيام التقصير هذا الشهر</th><th>الحالة</th></tr></thead>
+          <thead><tr><th>العضو</th><th>أيام التقصير خلال ${escapeHtml(monthOffsetLabel(reportsMonthOffset))}</th><th>الحالة</th></tr></thead>
           <tbody>
             ${monthlyRows.map(row => `
               <tr>
@@ -1412,6 +1505,139 @@ function bindPostponeApprovalEvents(container){
     }
   }));
 }
+
+/* ============================================================
+   PAGE: التعليم — المدير يحدد مواد تعلم لأعضاء معينين، وكل عضو
+   يشوف مواده هو بس (مفروض من RLS في قاعدة البيانات، مش مجرد إخفاء
+   في الواجهة)
+   ============================================================ */
+function pageLearning(){
+  const isAdmin = state.currentUser.role === 'admin';
+  const members = state.users.filter(u => u.role === 'member' && u.status !== 'pending');
+  const items = state.learning.slice().sort((a,b) => (b.createdAt||'').localeCompare(a.createdAt||''));
+
+  return `
+    <div class="page-head">
+      <div><h1>التعليم</h1><p>${isAdmin ? 'حدد مواد تعلم لأعضاء معينين — كل عضو يشوف مواده هو بس' : 'مواد التعلم المخصصة لك'}</p></div>
+      ${isAdmin ? `<button class="btn btn-primary" id="openLearningModalBtn">${ICONS.plus} مادة تعلم جديدة</button>` : ''}
+    </div>
+
+    ${isAdmin ? `
+    <div class="form-row" style="max-width:260px;">
+      <label for="learningFilterMember">تصفية حسب العضو</label>
+      <select id="learningFilterMember">
+        <option value="all">كل الأعضاء</option>
+        ${members.map(m => `<option value="${m.id}">${escapeHtml(m.name)}</option>`).join('')}
+      </select>
+    </div>` : ''}
+
+    <div id="learningListWrap">${renderLearningListHtml(items, isAdmin)}</div>
+  `;
+}
+
+function renderLearningListHtml(items, isAdmin){
+  if(!items.length) return emptyState('reports', isAdmin ? 'لا توجد مواد تعلم بعد' : 'لا توجد مواد تعلم مخصصة لك حاليًا', isAdmin ? 'ابدأ بإضافة أول مادة تعلم لعضو من الفريق' : 'هيظهر هنا أي مادة تعلم يحددها لك المدير');
+  return `<div class="timeline">${items.map(it => learningItemHtml(it, isAdmin)).join('')}</div>`;
+}
+
+function learningItemHtml(it, isAdmin){
+  const assignee = findUser(it.assignedTo);
+  const done = it.status === 'تم التعلم';
+  return `
+    <div class="timeline-item ${done ? 'tl-green' : 'tl-amber'}">
+      <div class="tl-head">
+        <span class="badge ${statusBadgeClass(it.status)}">${escapeHtml(it.status)}</span>
+        <span class="tl-date">${formatDateTime(it.createdAt)}${isAdmin ? ' — ' + escapeHtml(assignee ? assignee.name : 'عضو محذوف') : ''}</span>
+      </div>
+      <div class="tl-desc"><b>${escapeHtml(it.title)}</b>${it.description ? '<br>' + escapeHtml(it.description) : ''}</div>
+      ${it.link ? `<div class="tl-task">🔗 <a href="${escapeHtml(it.link)}" target="_blank" rel="noopener">${escapeHtml(it.link)}</a></div>` : ''}
+      <div class="row-actions" style="margin-top:8px;">
+        ${!isAdmin ? `<button type="button" class="btn btn-primary btn-sm learning-toggle-btn" data-id="${it.id}" data-next="${done ? 'قيد التنفيذ' : 'تم التعلم'}">${done ? 'إعادة فتحها' : 'تحديد كمكتملة'}</button>` : ''}
+        ${isAdmin ? `<button type="button" class="btn btn-danger btn-sm delete-learning-btn" data-id="${it.id}">${ICONS.trash} حذف</button>` : ''}
+      </div>
+    </div>
+  `;
+}
+
+function populateLearningAssigneeSelect(){
+  const members = state.users.filter(u => u.role === 'member' && u.status !== 'pending');
+  $('#learningAssignee').innerHTML = members.map(u => `<option value="${u.id}">${escapeHtml(u.name)}</option>`).join('');
+}
+
+function openLearningModal(){
+  populateLearningAssigneeSelect();
+  $('#learningForm').reset();
+  $('#learningModalOverlay').classList.remove('hidden');
+}
+function closeLearningModal(){ $('#learningModalOverlay').classList.add('hidden'); }
+
+function bindLearningEvents(){
+  const openBtn = $('#openLearningModalBtn');
+  if(openBtn) openBtn.addEventListener('click', openLearningModal);
+
+  const filterSel = $('#learningFilterMember');
+  if(filterSel) filterSel.addEventListener('change', () => {
+    const val = filterSel.value;
+    const items = state.learning.slice()
+      .filter(it => val === 'all' || String(it.assignedTo) === val)
+      .sort((a,b) => (b.createdAt||'').localeCompare(a.createdAt||''));
+    $('#learningListWrap').innerHTML = renderLearningListHtml(items, true);
+    bindLearningListActions();
+  });
+
+  bindLearningListActions();
+}
+
+function bindLearningListActions(){
+  $$('.delete-learning-btn').forEach(btn => btn.addEventListener('click', async () => {
+    if(!confirm('هل تريد حذف مادة التعلم هذه؟')) return;
+    try {
+      await apiFetch(`/learning/${btn.dataset.id}`, { method: 'DELETE' });
+      await refreshData();
+      renderPage();
+      toast('تم حذف مادة التعلم', 'ok');
+    } catch (err) {
+      toast(err.message, 'err');
+    }
+  }));
+  $$('.learning-toggle-btn').forEach(btn => btn.addEventListener('click', async () => {
+    try {
+      await apiFetch(`/learning/${btn.dataset.id}/status`, { method: 'PUT', body: JSON.stringify({ status: btn.dataset.next }) });
+      await refreshData();
+      renderPage();
+      toast('تم تحديث حالة مادة التعلم', 'ok');
+    } catch (err) {
+      toast(err.message, 'err');
+    }
+  }));
+}
+
+$('#learningModalClose').addEventListener('click', closeLearningModal);
+$('#learningCancelBtn').addEventListener('click', closeLearningModal);
+$('#learningModalOverlay').addEventListener('click', (e) => { if(e.target.id === 'learningModalOverlay') closeLearningModal(); });
+
+$('#learningForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const payload = {
+    assignedTo: Number($('#learningAssignee').value),
+    title: $('#learningTitle').value.trim(),
+    description: $('#learningDesc').value.trim(),
+    link: $('#learningLink').value.trim()
+  };
+  setFormBusy(form, true);
+  try {
+    await apiFetch('/learning', { method: 'POST', body: JSON.stringify(payload) });
+    toast('تمت إضافة مادة التعلم', 'ok');
+    closeLearningModal();
+    await refreshData();
+    renderPage();
+  } catch (err) {
+    toast(err.message, 'err');
+  } finally {
+    setFormBusy(form, false);
+  }
+});
 
 /* ============================================================
    PAGE: الأعضاء (Admin فقط)
@@ -1551,6 +1777,7 @@ function bindPageEvents(){
 
   if(state.activePage === 'tasks') bindTasksEvents();
   if(state.activePage === 'reports') bindReportsEvents();
+  if(state.activePage === 'learning') bindLearningEvents();
   if(state.activePage === 'members') bindMembersEvents();
   if(state.activePage === 'settings') bindSettingsEvents();
 }
@@ -1714,6 +1941,11 @@ function bindReportsEvents(){
     });
   } else {
     bindPostponeApprovalEvents(document);
+    const monthSel = $('#reportsMonthSelect');
+    if(monthSel) monthSel.addEventListener('change', () => {
+      reportsMonthOffset = Number(monthSel.value) || 0;
+      renderPage();
+    });
     const filterSel = $('#reportFilterMember');
     const dateInput = $('#reportFilterDate');
     const clearBtn = $('#reportFilterClear');
