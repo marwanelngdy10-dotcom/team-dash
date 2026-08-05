@@ -2798,7 +2798,7 @@ function pageMembers(){
               const canManageTarget = viewerIsSuper || u.role === 'member';
               return `
               <tr>
-                <td class="cell-user">${avatarWithPresence(u)} <div><div style="font-weight:700;">${escapeHtml(u.name)} ${isSuper ? '<span class="badge badge-amber" title="سوبر أدمن — لا يمكن حذفه أو تعطيله">⭐ سوبر أدمن</span>' : ''}</div><div style="font-size:12px;color:var(--text-400);">${escapeHtml(u.email)}</div>${presenceLabelHtml(u)}</div></td>
+                <td class="cell-user">${avatarWithPresence(u)} <div><div style="font-weight:700;">${escapeHtml(u.name)} ${isSuper ? '<span class="badge badge-amber" title="سوبر أدمن — محمي من حذف أو تعطيل أي حد تاني، ويقدر يحذف حسابه هو بنفسه بس">⭐ سوبر أدمن</span>' : ''}</div><div style="font-size:12px;color:var(--text-400);">${escapeHtml(u.email)}</div>${presenceLabelHtml(u)}</div></td>
                 <td>
                   ${viewerIsSuper ? `
                     <select class="role-select" data-id="${u.id}" ${(isSelf || isSuper) ? 'disabled' : ''} aria-label="صلاحية العضو">
@@ -2820,7 +2820,7 @@ function pageMembers(){
                     ${(!isSuper && canManageTarget) ? `<button class="btn btn-ghost btn-sm toggle-status-btn" data-id="${u.id}">${u.status==='active'?'تعطيل':'تفعيل'}</button>` : ''}
                     ${viewerIsSuper ? `<button class="btn btn-ghost btn-sm reset-pwd-btn" data-id="${u.id}" data-name="${escapeHtml(u.name)}">${ICONS.eyeOff} كلمة المرور</button>` : ''}
                     ${(!isSuper && canManageTarget) ? `<button class="btn btn-danger btn-sm btn-icon delete-member-btn" data-id="${u.id}" aria-label="حذف">${ICONS.trash}</button>` : ''}
-                  ` : `<span style="font-size:12px;color:var(--text-400);">أنت</span>`}
+                  ` : (isSuper ? `<button class="btn btn-danger btn-sm delete-self-btn" data-id="${u.id}">${ICONS.trash || ''} حذف حسابي</button>` : `<span style="font-size:12px;color:var(--text-400);">أنت</span>`)}
                 </td>
               </tr>
             `;}).join('')}
@@ -3137,6 +3137,17 @@ function bindMembersEvents(){
       await refreshData();
       renderPage();
       toast('تم حذف العضو', 'ok');
+    } catch (err) {
+      toast(err.message, 'err');
+    }
+  }));
+  $$('.delete-self-btn').forEach(btn => btn.addEventListener('click', async () => {
+    if(!confirm('هل أنت متأكد إنك عايز تحذف حسابك أنت شخصيًا نهائيًا؟ الإجراء ده لا يمكن التراجع عنه، وهيتم تسجيل خروجك فورًا.')) return;
+    if(!confirm('تأكيد أخير: حذف حسابك هيشيل ملفك الشخصي وكل صلاحياتك نهائيًا من النظام. متأكد فعلًا؟')) return;
+    try {
+      await apiFetch(`/users/${btn.dataset.id}`, { method: 'DELETE' });
+      toast('تم حذف حسابك', 'ok');
+      await logout();
     } catch (err) {
       toast(err.message, 'err');
     }
