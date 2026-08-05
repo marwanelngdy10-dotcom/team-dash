@@ -1,10 +1,15 @@
 // supabase/functions/admin-reset-password/index.ts
 //
-// وظيفة هذا الـ Edge Function: تسمح للمدير (وبس المدير) بتعيين كلمة مرور
-// جديدة لأي عضو في الفريق، من غير ما حد (حتى المدير) يقدر "يشوف" كلمة
-// المرور الحالية — لأن Supabase أصلًا بيخزّن كلمات المرور مشفّرة بتشفير
-// أحادي الاتجاه (one-way hash)، ومفيش أي طريقة فك تشفير ليها حتى من
-// طرف Supabase نفسها. ده معيار أمان أساسي، ومش قابل للتغيير.
+// وظيفة هذا الـ Edge Function: تسمح للسوبر أدمن (وبس السوبر أدمن — مش أي
+// مدير عادي) بتعيين كلمة مرور جديدة لأي عضو في الفريق، من غير ما حد
+// (حتى السوبر أدمن نفسه) يقدر "يشوف" كلمة المرور الحالية — لأن Supabase
+// أصلًا بيخزّن كلمات المرور مشفّرة بتشفير أحادي الاتجاه (one-way hash)،
+// ومفيش أي طريقة فك تشفير ليها حتى من طرف Supabase نفسها. ده معيار أمان
+// أساسي، ومش قابل للتغيير.
+//
+// ملحوظة: المدير العادي (role='admin' بدون isSuperAdmin) مش مسموح له
+// بتغيير كلمة مرور أي حد، حتى لو حاول يبعت الطلب مباشرة للـ Edge Function
+// (مش بس مخفي في الواجهة) — التحقق تحت بيرفض أي حد غير سوبر أدمن.
 //
 // البديل العملي: المدير "يعيد تعيين" كلمة مرور جديدة للعضو (زي ما بيحصل
 // في أي نظام حقيقي — GitHub, Gmail, إلخ) بدل ما "يشوف" القديمة.
@@ -55,15 +60,22 @@ Deno.serve(async (req) => {
   const { data: authData, error: authErr } = await admin.auth.getUser(token);
   if (authErr || !authData?.user) return json({ error: "جلسة غير صالحة" }, 401);
 
-  // 2) تأكد إن صاحب التوكن ده "مدير" فعليًا من جدول users (مش من كلامه هو)
+  // 2) تأكد إن صاحب التوكن ده "سوبر أدمن" فعليًا من جدول users (مش من كلامه هو)
+  //    — مدير عادي (role='admin' بدون isSuperAdmin) مش كفاية هنا
   const { data: caller, error: callerErr } = await admin
     .from("users")
-    .select("role, status")
+    .select("role, status, isSuperAdmin")
     .eq("authId", authData.user.id)
     .single();
 
-  if (callerErr || !caller || caller.role !== "admin" || caller.status !== "active") {
-    return json({ error: "غير مصرح لك بتنفيذ هذه العملية" }, 403);
+  if (
+    callerErr ||
+    !caller ||
+    caller.role !== "admin" ||
+    caller.status !== "active" ||
+    !caller.isSuperAdmin
+  ) {
+    return json({ error: "غير مصرح لك بتنفيذ هذه العملية — تغيير كلمة المرور مقصور على السوبر أدمن" }, 403);
   }
 
   // 3) اقرأ بيانات الطلب

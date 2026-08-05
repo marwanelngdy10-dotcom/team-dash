@@ -859,6 +859,22 @@ async function reportsSetPostponeApproval(id, approved){
   if(error) throw new Error('تعذّر تحديث حالة العذر');
   return { report: data };
 }
+/* تعديل تقرير — كل عضو يقدر يعدّل تقاريره هو بس (مفروض من RLS + guard على قاعدة
+   البيانات، مش مجرد إخفاء في الواجهة). لا يشمل postponeApproved — ده بيفضل بيد المدير بس */
+async function reportsUpdate(id, p){
+  const { data, error } = await sb.from('reports').update({
+    status: p.status, description: p.description, taskId: p.taskId || null,
+    postponeUntil: p.status === 'لن يتم التعلم' ? (p.postponeUntil || null) : null
+  }).eq('id', id).select().single();
+  if(error) throw new Error('تعذّر تحديث التقرير');
+  return { report: data };
+}
+/* حذف تقرير — كل عضو يقدر يحذف تقاريره هو بس (والمدير يقدر يحذف أي تقرير) */
+async function reportsDelete(id){
+  const { error } = await sb.from('reports').delete().eq('id', id);
+  if(error) throw new Error(error.message || 'تعذّر حذف التقرير');
+  return { message: 'تم حذف التقرير' };
+}
 
 async function usersList(){
   const { data, error } = await sb.from('users').select('*').order('createdAt', { ascending: false });
@@ -880,10 +896,21 @@ async function usersCreate(p){
   await new Promise(r => setTimeout(r, 500)); // انتظار تنفيذ الـ trigger اللي بينشئ صف users
   const authId = signUpData.user ? signUpData.user.id : null;
   if(!authId) throw new Error('تعذّر إنشاء الحساب');
+  const isSuperAdmin = p.role === 'superadmin';
+  const role = (p.role === 'admin' || isSuperAdmin) ? 'admin' : 'member';
   const { data, error: updErr } = await sb.from('users')
-    .update({ status: 'active', role: p.role === 'admin' ? 'admin' : 'member' })
+    .update({ status: 'active', role })
     .eq('authId', authId).select().single();
   if(updErr) throw new Error('تم إنشاء الحساب لكن يلزم تفعيله يدويًا من "الأعضاء"');
+  if(isSuperAdmin){
+    // خطوة إضافية محمية بصلاحية السوبر أدمن على قاعدة البيانات (RLS + guard) —
+    // لو المُنشئ مش سوبر أدمن فعليًا، هترفض تلقائيًا حتى لو الواجهة عرضت الخيار
+    const { data: superData, error: superErr } = await sb.from('users')
+      .update({ isSuperAdmin: true })
+      .eq('id', data.id).select().single();
+    if(superErr) throw new Error('تم إنشاء الحساب كمدير، لكن تعذّر منحه صلاحية سوبر أدمن: ' + superErr.message);
+    return { user: superData };
+  }
   return { user: data };
 }
 async function usersApprove(id){
@@ -1088,6 +1115,8 @@ async function apiFetch(path, options = {}){
   if(path === '/reports' && method === 'GET') return reportsList();
   if(path === '/reports' && method === 'POST') return reportsCreate(body);
   if((m = path.match(/^\/reports\/(\d+)\/postpone-approval$/)) && method === 'PUT') return reportsSetPostponeApproval(Number(m[1]), body.approved);
+  if((m = path.match(/^\/reports\/(\d+)$/)) && method === 'PUT') return reportsUpdate(Number(m[1]), body);
+  if((m = path.match(/^\/reports\/(\d+)$/)) && method === 'DELETE') return reportsDelete(Number(m[1]));
 
   if(path === '/users' && method === 'GET') return usersList();
   if(path === '/users' && method === 'POST') return usersCreate(body);
@@ -1852,11 +1881,16 @@ function reportsMemberView(){
   `;
 }
 
+let editingReportId = null;
+
 function reportTimelineItem(r, isAdmin){
+  if(editingReportId === r.id) return editReportForm(r);
+
   const cls = r.status === 'تم التعلم' ? 'tl-green' : r.status === 'يتم التعلم' ? 'tl-amber' : 'tl-red';
   const task = r.taskId ? state.tasks.find(t=>t.id===r.taskId) : null;
   const author = findUser(r.userId);
   const late = isReportLate(r);
+  const isOwner = state.currentUser && r.userId === state.currentUser.id;
   const postponeBadge = !r.postponeUntil ? '' :
     r.postponeApproved === true ? `<span class="badge badge-green">✔️ عذر مقبول — لحد ${formatDate(r.postponeUntil)}</span>` :
     r.postponeApproved === false ? `<span class="badge badge-red">✖️ عذر مرفوض</span>` :
@@ -1865,6 +1899,11 @@ function reportTimelineItem(r, isAdmin){
     <div class="row-actions" style="margin-top:8px;">
       ${r.postponeApproved !== true ? `<button class="btn btn-primary btn-sm postpone-approve-btn" data-id="${r.id}">قبول العذر</button>` : ''}
       ${r.postponeApproved !== false ? `<button class="btn btn-danger btn-sm postpone-reject-btn" data-id="${r.id}">رفض العذر</button>` : ''}
+    </div>` : '';
+  const ownerActions = isOwner ? `
+    <div class="row-actions" style="margin-top:8px;">
+      <button class="btn btn-ghost btn-sm edit-report-btn" data-id="${r.id}">${ICONS.edit || ''} تعديل</button>
+      <button class="btn btn-danger btn-sm delete-report-btn" data-id="${r.id}">${ICONS.trash || ''} حذف</button>
     </div>` : '';
   return `
     <div class="timeline-item ${cls}">
@@ -1877,6 +1916,37 @@ function reportTimelineItem(r, isAdmin){
       ${task ? `<div class="tl-task">🔗 مرتبط بمهمة: ${escapeHtml(task.title)}</div>` : ''}
       ${r.postponeUntil ? `<div class="tl-task" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">⏸️ طلب تأجيل احتساب التقصير لحد ${formatDate(r.postponeUntil)} ${postponeBadge}</div>` : ''}
       ${approvalActions}
+      ${ownerActions}
+    </div>
+  `;
+}
+
+function editReportForm(r){
+  const showPostpone = r.status === 'لن يتم التعلم';
+  return `
+    <div class="timeline-item">
+      <form class="edit-report-form" data-id="${r.id}">
+        <div class="form-row">
+          <label for="editReportStatus_${r.id}">حالة التعلم</label>
+          <select id="editReportStatus_${r.id}" class="edit-report-status">
+            <option value="تم التعلم" ${r.status==='تم التعلم'?'selected':''}>✅ تم التعلم</option>
+            <option value="يتم التعلم" ${r.status==='يتم التعلم'?'selected':''}>⏳ يتم التعلم</option>
+            <option value="لن يتم التعلم" ${r.status==='لن يتم التعلم'?'selected':''}>✖️ لن يتم التعلم</option>
+          </select>
+        </div>
+        <div class="form-row edit-report-postpone-row ${showPostpone ? '' : 'hidden'}">
+          <label for="editReportPostpone_${r.id}">مؤجّل لحد تاريخ (اختياري)</label>
+          <input type="date" id="editReportPostpone_${r.id}" class="edit-report-postpone" value="${r.postponeUntil || ''}">
+        </div>
+        <div class="form-row">
+          <label for="editReportDesc_${r.id}">وصف ما تم تعلمه</label>
+          <textarea id="editReportDesc_${r.id}" class="edit-report-desc" required>${escapeHtml(r.description)}</textarea>
+        </div>
+        <div class="row-actions">
+          <button type="submit" class="btn btn-primary btn-sm">حفظ التعديل</button>
+          <button type="button" class="btn btn-ghost btn-sm cancel-edit-report-btn" data-id="${r.id}">إلغاء</button>
+        </div>
+      </form>
     </div>
   `;
 }
@@ -2081,6 +2151,54 @@ function bindPostponeApprovalEvents(container){
       await refreshData();
       renderPage();
       toast('تم رفض العذر', 'err');
+    } catch (err) {
+      toast(err.message, 'err');
+    }
+  }));
+  bindReportOwnerEvents(container);
+}
+
+/* تعديل/حذف تقرير من صاحبه — متاحة في عرض العضو لتقاريره وفي عرض المدير الإجمالي */
+function bindReportOwnerEvents(container){
+  Array.from(container.querySelectorAll('.edit-report-btn')).forEach(btn => btn.addEventListener('click', () => {
+    editingReportId = Number(btn.dataset.id);
+    renderPage();
+  }));
+  Array.from(container.querySelectorAll('.cancel-edit-report-btn')).forEach(btn => btn.addEventListener('click', () => {
+    editingReportId = null;
+    renderPage();
+  }));
+  Array.from(container.querySelectorAll('.delete-report-btn')).forEach(btn => btn.addEventListener('click', async () => {
+    if(!confirm('هل تريد حذف هذا التقرير نهائيًا؟')) return;
+    try {
+      await reportsDelete(Number(btn.dataset.id));
+      editingReportId = null;
+      await refreshData();
+      renderPage();
+      toast('تم حذف التقرير', 'ok');
+    } catch (err) {
+      toast(err.message, 'err');
+    }
+  }));
+  Array.from(container.querySelectorAll('.edit-report-status')).forEach(sel => sel.addEventListener('change', () => {
+    const form = sel.closest('.edit-report-form');
+    const row = form.querySelector('.edit-report-postpone-row');
+    if(row) row.classList.toggle('hidden', sel.value !== 'لن يتم التعلم');
+  }));
+  Array.from(container.querySelectorAll('.edit-report-form')).forEach(form => form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const id = Number(form.dataset.id);
+    const status = form.querySelector('.edit-report-status').value;
+    const desc = form.querySelector('.edit-report-desc').value.trim();
+    if(!desc){ toast('يرجى كتابة وصف ما تعلمته', 'err'); return; }
+    const postponeInput = form.querySelector('.edit-report-postpone');
+    const postponeUntil = postponeInput && postponeInput.value ? postponeInput.value : null;
+    try {
+      await reportsUpdate(id, { status, description: desc, postponeUntil });
+      editingReportId = null;
+      await refreshData();
+      renderPage();
+      toast('تم حفظ التعديل', 'ok');
     } catch (err) {
       toast(err.message, 'err');
     }
@@ -2584,14 +2702,20 @@ function pageMembers(){
               const lastReport = userReports(u.id).slice().sort((a,b) => (b.createdAt||'').localeCompare(a.createdAt||''))[0];
               const isSelf = u.id === state.currentUser.id;
               const isSuper = !!u.isSuperAdmin;
+              const viewerIsSuper = !!state.currentUser.isSuperAdmin;
+              /* المدير العادي (مش سوبر) يقدر يدير الأعضاء (role='member') بس —
+                 مش قادر يغيّر صلاحية حد لمدير/سوبر، ولا يعطّل/يحذف مدير تاني */
+              const canManageTarget = viewerIsSuper || u.role === 'member';
               return `
               <tr>
                 <td class="cell-user">${avatarWithPresence(u)} <div><div style="font-weight:700;">${escapeHtml(u.name)} ${isSuper ? '<span class="badge badge-amber" title="سوبر أدمن — لا يمكن حذفه أو تعطيله">⭐ سوبر أدمن</span>' : ''}</div><div style="font-size:12px;color:var(--text-400);">${escapeHtml(u.email)}</div>${presenceLabelHtml(u)}</div></td>
                 <td>
-                  <select class="role-select" data-id="${u.id}" ${(isSelf || isSuper) ? 'disabled' : ''} aria-label="صلاحية العضو">
-                    <option value="member" ${u.role==='member'?'selected':''}>عضو</option>
-                    <option value="admin" ${u.role==='admin'?'selected':''}>مدير</option>
-                  </select>
+                  ${viewerIsSuper ? `
+                    <select class="role-select" data-id="${u.id}" ${(isSelf || isSuper) ? 'disabled' : ''} aria-label="صلاحية العضو">
+                      <option value="member" ${u.role==='member'?'selected':''}>عضو</option>
+                      <option value="admin" ${u.role==='admin'?'selected':''}>مدير</option>
+                    </select>
+                  ` : `<span style="font-size:12.5px;">${u.role==='admin' ? 'مدير' : 'عضو'}</span>`}
                 </td>
                 <td>${userTasks(u.id).length}</td>
                 <td>${lastReport ? `${formatDateTime(lastReport.createdAt)}${isReportLate(lastReport) ? ' <span class="badge badge-red">متأخر</span>' : ''}` : '<span style="color:var(--text-400);">لا يوجد</span>'}</td>
@@ -2603,9 +2727,9 @@ function pageMembers(){
                       : '<span class="badge badge-red">معطّل يدويًا</span>'}</td>
                 <td class="row-actions">
                   ${!isSelf ? `
-                    ${!isSuper ? `<button class="btn btn-ghost btn-sm toggle-status-btn" data-id="${u.id}">${u.status==='active'?'تعطيل':'تفعيل'}</button>` : ''}
-                    <button class="btn btn-ghost btn-sm reset-pwd-btn" data-id="${u.id}" data-name="${escapeHtml(u.name)}">${ICONS.eyeOff} كلمة المرور</button>
-                    ${!isSuper ? `<button class="btn btn-danger btn-sm btn-icon delete-member-btn" data-id="${u.id}" aria-label="حذف">${ICONS.trash}</button>` : ''}
+                    ${(!isSuper && canManageTarget) ? `<button class="btn btn-ghost btn-sm toggle-status-btn" data-id="${u.id}">${u.status==='active'?'تعطيل':'تفعيل'}</button>` : ''}
+                    ${viewerIsSuper ? `<button class="btn btn-ghost btn-sm reset-pwd-btn" data-id="${u.id}" data-name="${escapeHtml(u.name)}">${ICONS.eyeOff} كلمة المرور</button>` : ''}
+                    ${(!isSuper && canManageTarget) ? `<button class="btn btn-danger btn-sm btn-icon delete-member-btn" data-id="${u.id}" aria-label="حذف">${ICONS.trash}</button>` : ''}
                   ` : `<span style="font-size:12px;color:var(--text-400);">أنت</span>`}
                 </td>
               </tr>
@@ -2842,6 +2966,7 @@ function bindReportsEvents(){
         setFormBusy(form, false);
       }
     });
+    bindReportOwnerEvents(document);
   } else {
     bindPostponeApprovalEvents(document);
     const monthSel = $('#reportsMonthSelect');
@@ -2865,7 +2990,16 @@ function bindReportsEvents(){
 
 function bindMembersEvents(){
   const openBtn = $('#openMemberModalBtn');
-  if(openBtn) openBtn.addEventListener('click', () => { $('#memberForm').reset(); $('#memberModalOverlay').classList.remove('hidden'); });
+  if(openBtn) openBtn.addEventListener('click', () => {
+    $('#memberForm').reset();
+    /* السوبر أدمن بس يقدر يضيف عضو بصلاحية "مدير" أو "سوبر أدمن"،
+       المدير العادي يقدر يضيف "عضو" بس */
+    const viewerIsSuper = !!(state.currentUser && state.currentUser.isSuperAdmin);
+    $('#memRole').innerHTML = viewerIsSuper
+      ? `<option value="member" selected>عضو</option><option value="admin">مدير</option><option value="superadmin">سوبر أدمن</option>`
+      : `<option value="member" selected>عضو</option>`;
+    $('#memberModalOverlay').classList.remove('hidden');
+  });
 
   $$('.approve-btn').forEach(btn => btn.addEventListener('click', async () => {
     const u = findUser(Number(btn.dataset.id));
