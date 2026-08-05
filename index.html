@@ -1347,6 +1347,16 @@ function formatDate(iso){
   const [y,m,d] = iso.split('-');
   return `${d}/${m}/${y}`;
 }
+/* اسم اليوم بالعربي (الأحد، الاثنين، ...) لتاريخ من نوع YYYY-MM-DD */
+function dayNameAr(dateStr){
+  if(!dateStr) return '';
+  const [y,m,d] = dateStr.split('-').map(Number);
+  return new Date(y, m-1, d).toLocaleDateString('ar-EG', { weekday: 'long' });
+}
+function formatDateWithDay(dateStr){
+  if(!dateStr) return '—';
+  return `${dayNameAr(dateStr)} ${formatDate(dateStr)}`;
+}
 const GRACE_CUTOFF_HOUR = 16; // الموعد النهائي لاعتبار التسجيل "تأخير" لا "تقصير" = الساعة 4 عصرًا من اليوم التالي
 function formatTime(isoDateTime){
   if(!isoDateTime) return '—';
@@ -1415,6 +1425,23 @@ function monthlyNegligentDays(userId, monthDate){
   const late = rows.filter(r => r.status === 'late').length;
   const negligentFromLate = Math.floor(late / 2);
   return { days: missedDates.length + negligentFromLate, missed: missedDates.length, late, list: missedDates };
+}
+/* بيتنبأ باليوم اللي هيتنسب له تقرير جديد لو اتحفظ دلوقتي — بنفس منطق تريجر
+   السيرفر set_report_date_for_grace_window بالظبط، عشان نعرضه للعضو قبل الحفظ.
+   لو اتسجل تقرير تاني فورًا بعد الأول، الأول بياخد اليوم الأقدم (أمس لو متاح)
+   والتاني بياخد اللي بعده (النهارده)، لأن أمس بقى بقى عنده تقرير فمش هيتكرر. */
+function predictedReportTarget(userId){
+  const user = findUser(userId);
+  if(!user) return { date: todayStr(), late: false };
+  const now = new Date();
+  const cutoffPassed = now.getHours() >= GRACE_CUTOFF_HOUR;
+  const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  const yStr = yesterday.getFullYear()+'-'+String(yesterday.getMonth()+1).padStart(2,'0')+'-'+String(yesterday.getDate()).padStart(2,'0');
+  const hasYesterdayReport = state.reports.some(r => r.userId === userId && r.date === yStr);
+  if(!cutoffPassed && yStr >= user.createdAt && !hasYesterdayReport){
+    return { date: yStr, late: true };
+  }
+  return { date: todayStr(), late: false };
 }
 function initials(name){
   if(!name) return '?';
@@ -1862,6 +1889,7 @@ function pageReports(){
 function reportsMemberView(){
   const myTasks = userTasks(state.currentUser.id);
   const myReports = userReports(state.currentUser.id).slice().sort((a,b) => b.date.localeCompare(a.date));
+  const predicted = predictedReportTarget(state.currentUser.id);
 
   return `
     <div class="page-head">
@@ -1870,6 +1898,10 @@ function reportsMemberView(){
 
     <div class="card" style="padding:22px; margin-bottom:26px;">
       <h3 class="section-title">${ICONS.bulb} تقرير جديد</h3>
+      <div class="badge ${predicted.late ? 'badge-amber' : 'badge-green'}" style="display:inline-flex; gap:6px; padding:10px 14px; font-size:13px; margin-bottom:14px;">
+        ${predicted.late ? '⏰' : '📅'} هذا التقرير هيتسجل عن يوم: <b>${formatDateWithDay(predicted.date)}</b>
+        ${predicted.late ? ' — متأخر (آخر موعد لتسجيله الساعة 4 عصرًا النهارده)' : ' — على الوقت'}
+      </div>
       <form id="reportForm">
         <div class="form-row">
           <label for="reportTask">المهمة المرتبطة (اختياري)</label>
@@ -1895,7 +1927,7 @@ function reportsMemberView(){
           <textarea id="reportDesc" required placeholder="اكتب تفاصيل ما تعلمته أو ما واجهته اليوم..."></textarea>
         </div>
         <div style="font-size:12px; color:var(--text-400); margin-bottom:14px;">
-          سيتم حفظ التاريخ (${formatDate(todayStr())}) واسم المستخدم (${escapeHtml(state.currentUser.name)}) تلقائيًا.
+          سيتم حفظ اسم المستخدم (${escapeHtml(state.currentUser.name)}) تلقائيًا مع التقرير.
         </div>
         <button type="submit" class="btn btn-primary">حفظ التقرير</button>
       </form>
@@ -1937,6 +1969,7 @@ function reportTimelineItem(r, isAdmin){
         ${late ? `<span class="badge badge-red">⏰ متأخر (تأخيرتان = يوم تقصير)</span>` : ''}
         <span class="tl-date">${formatDateTime(r.createdAt)} — ${escapeHtml(author ? author.name : '')}</span>
       </div>
+      <div class="tl-task">📅 هذا تقرير يوم: <b>${formatDateWithDay(r.date)}</b></div>
       <div class="tl-desc">${escapeHtml(r.description)}</div>
       ${task ? `<div class="tl-task">🔗 مرتبط بمهمة: ${escapeHtml(task.title)}</div>` : ''}
       ${r.postponeUntil ? `<div class="tl-task" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">⏸️ طلب تأجيل احتساب التقصير لحد ${formatDate(r.postponeUntil)} ${postponeBadge}</div>` : ''}
@@ -2086,7 +2119,7 @@ function reportsAdminView(){
                       <tbody>
                         ${dailyBreakdownForUser(row.id, selectedMonth).map(d => `
                           <tr>
-                            <td>${formatDate(d.date)}</td>
+                            <td>${formatDateWithDay(d.date)}</td>
                             <td>${
                               d.status==='ontime' ? '<span class="badge badge-green">✔️ على الوقت</span>'
                               : d.status==='late' ? '<span class="badge badge-amber">⏰ تأخير</span>'
@@ -2175,7 +2208,7 @@ function renderAdminReportsList(filterId, filterDate){
     if(missing.length){
       missingHtml = `
         <div class="card" style="padding:16px 18px; margin-bottom:16px; border-color:var(--red-500);">
-          <b>لم يسجّلوا تقريرًا في هذا اليوم (${formatDate(filterDate)}):</b>
+          <b>لم يسجّلوا تقريرًا في هذا اليوم (${formatDateWithDay(filterDate)}):</b>
           <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
             ${missing.map(m => `<span class="badge badge-red">${escapeHtml(m.name)}</span>`).join('')}
           </div>
