@@ -1357,7 +1357,8 @@ function formatDateWithDay(dateStr){
   if(!dateStr) return '—';
   return `${dayNameAr(dateStr)} ${formatDate(dateStr)}`;
 }
-const GRACE_CUTOFF_HOUR = 16; // الموعد النهائي لاعتبار التسجيل "تأخير" لا "تقصير" = الساعة 4 عصرًا من اليوم التالي
+const GRACE_CUTOFF_HOUR = 16; // الموعد النهائي المطلق (قفل اليوم): بعده تقصير كامل مباشرة = الساعة 4 عصرًا من اليوم التالي
+const GRACE_LATE_START_HOUR = 13; // بداية نافذة "التأخير": قبلها التسجيل يعتبر على الوقت تمامًا رغم إنه في اليوم التالي = الساعة 1 ظهرًا
 function formatTime(isoDateTime){
   if(!isoDateTime) return '—';
   const d = new Date(isoDateTime);
@@ -1369,13 +1370,16 @@ function formatDateTime(isoDateTime){
   const dateStr = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
   return `${formatDate(dateStr)} — ${formatTime(isoDateTime)}`;
 }
-/* تقرير "متأخر" = اتسجل في نافذة مهلة اليوم التالي (بعد ما اليوم بتاعه خلص، لكن قبل
-   الساعة 4 عصرًا اليوم اللي بعده) — أي إن تاريخ الإنشاء الفعلي جاي بعد تاريخ اليوم
+/* تقرير "متأخر" = اتسجل في اليوم التالي بعد الساعة 1 ظهرًا (ولسه قبل موعد القفل
+   النهائي 4 عصرًا). لو اتسجل في اليوم التالي لكن قبل الساعة 1 ظهرًا → على الوقت
+   تمامًا، صفر احتساب (سماحية). أي إن تاريخ الإنشاء الفعلي جاي بعد تاريخ اليوم
    المنسوب له التقرير (عمود date، اللي بيتحدد تلقائيًا من السيرفر وقت الحفظ) */
 function isReportLate(r){
   if(!r || !r.date || !r.createdAt) return false;
-  const createdDateStr = new Date(r.createdAt).getFullYear()+'-'+String(new Date(r.createdAt).getMonth()+1).padStart(2,'0')+'-'+String(new Date(r.createdAt).getDate()).padStart(2,'0');
-  return createdDateStr > r.date;
+  const created = new Date(r.createdAt);
+  const createdDateStr = created.getFullYear()+'-'+String(created.getMonth()+1).padStart(2,'0')+'-'+String(created.getDate()).padStart(2,'0');
+  if(createdDateStr <= r.date) return false;
+  return created.getHours() >= GRACE_LATE_START_HOUR;
 }
 /* تفصيل يومي لحالة عضو خلال شهر معيّن: كل يوم بحالته (على الوقت / تأخير / تقصير / مؤجّل بعذر)
    ووقت التسجيل الفعلي لو موجود — يُستخدم في عرض التفاصيل للمدير وفي حساب الإجمالي الشهري */
@@ -1439,7 +1443,7 @@ function predictedReportTarget(userId){
   const yStr = yesterday.getFullYear()+'-'+String(yesterday.getMonth()+1).padStart(2,'0')+'-'+String(yesterday.getDate()).padStart(2,'0');
   const hasYesterdayReport = state.reports.some(r => r.userId === userId && r.date === yStr);
   if(!cutoffPassed && yStr >= user.createdAt && !hasYesterdayReport){
-    return { date: yStr, late: true };
+    return { date: yStr, late: now.getHours() >= GRACE_LATE_START_HOUR };
   }
   return { date: todayStr(), late: false };
 }
@@ -1900,7 +1904,7 @@ function reportsMemberView(){
       <h3 class="section-title">${ICONS.bulb} تقرير جديد</h3>
       <div class="badge ${predicted.late ? 'badge-amber' : 'badge-green'}" style="display:inline-flex; gap:6px; padding:10px 14px; font-size:13px; margin-bottom:14px;">
         ${predicted.late ? '⏰' : '📅'} هذا التقرير هيتسجل عن يوم: <b>${formatDateWithDay(predicted.date)}</b>
-        ${predicted.late ? ' — متأخر (آخر موعد لتسجيله الساعة 4 عصرًا النهارده)' : ' — على الوقت'}
+        ${predicted.late ? ' — متأخر (آخر موعد لتسجيله الساعة 4 عصرًا النهارده)' : ' — على الوقت (في حدود سماحية اليوم التالي لحد الساعة 1 ظهرًا)'}
       </div>
       <form id="reportForm">
         <div class="form-row">
