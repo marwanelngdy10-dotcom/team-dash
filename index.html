@@ -1347,7 +1347,7 @@ function formatDate(iso){
   const [y,m,d] = iso.split('-');
   return `${d}/${m}/${y}`;
 }
-const LATE_CUTOFF_HOUR = 13; // بعد الساعة 1 الظهر يعتبر تسجيل متأخر (تقصير)
+const LATE_CUTOFF_HOUR = 13; // الموعد النهائي لتقرير اليوم = الساعة 1 ظهرًا من اليوم التالي له
 function formatTime(isoDateTime){
   if(!isoDateTime) return '—';
   const d = new Date(isoDateTime);
@@ -1359,14 +1359,20 @@ function formatDateTime(isoDateTime){
   const dateStr = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
   return `${formatDate(dateStr)} — ${formatTime(isoDateTime)}`;
 }
+/* تقرير "متأخر" = اتسجل في نافذة مهلة اليوم التالي (بعد ما اليوم بتاعه خلص، لكن قبل
+   الساعة 1 ظهرًا اليوم اللي بعده) — أي إن تاريخ الإنشاء الفعلي جاي بعد تاريخ اليوم
+   المنسوب له التقرير (عمود date، اللي بيتحدد تلقائيًا من السيرفر وقت الحفظ) */
 function isReportLate(r){
-  if(!r || !r.createdAt) return false;
-  return new Date(r.createdAt).getHours() >= LATE_CUTOFF_HOUR;
+  if(!r || !r.date || !r.createdAt) return false;
+  const createdDateStr = new Date(r.createdAt).getFullYear()+'-'+String(new Date(r.createdAt).getMonth()+1).padStart(2,'0')+'-'+String(new Date(r.createdAt).getDate()).padStart(2,'0');
+  return createdDateStr > r.date;
 }
-/* حساب أيام التقصير لعضو خلال شهر معيّن (لأغراض العرض فقط — الإيقاف الفعلي يتم على قاعدة البيانات) */
+/* حساب أيام التقصير لعضو خلال شهر معيّن (لأغراض العرض فقط — الإيقاف الفعلي يتم على قاعدة البيانات)
+   يوم بدون تقرير خالص (بعد ما يفوت موعده النهائي) = تقصير كامل.
+   يوم اتسجل في نافذة المهلة (متأخر) = نصف تقصير، وكل تأخيرتين يتحولوا ليوم تقصير واحد. */
 function monthlyNegligentDays(userId, monthDate){
   const user = findUser(userId);
-  if(!user) return { days: 0, list: [] };
+  if(!user) return { days: 0, missed: 0, late: 0, list: [] };
   const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
   const created = new Date(user.createdAt);
   const postponeDates = state.reports
@@ -1374,22 +1380,29 @@ function monthlyNegligentDays(userId, monthDate){
     .map(r => r.postponeUntil)
     .sort();
   const postponeUntil = postponeDates.length ? postponeDates[postponeDates.length-1] : null;
-  const today = new Date();
-  const isCurrentMonth = monthDate.getFullYear()===today.getFullYear() && monthDate.getMonth()===today.getMonth();
-  const lastDay = isCurrentMonth ? today : new Date(monthDate.getFullYear(), monthDate.getMonth()+1, 0);
-  const negligentDates = [];
+
+  const now = new Date();
+  const cutoffPassed = now.getHours() >= LATE_CUTOFF_HOUR;
+  // آخر يوم "اتقفل" فعليًا (فات موعده النهائي: الساعة 1 ظهرًا اليوم التالي له)
+  const lastFinal = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (cutoffPassed ? 1 : 2));
+
+  const isCurrentMonth = monthDate.getFullYear()===now.getFullYear() && monthDate.getMonth()===now.getMonth();
+  const lastDay = isCurrentMonth ? lastFinal : new Date(monthDate.getFullYear(), monthDate.getMonth()+1, 0);
+
+  const missedDates = [];
+  let lateCount = 0;
   for(let d = new Date(Math.max(monthStart, created)); d <= lastDay; d.setDate(d.getDate()+1)){
     const dStr = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
     if(postponeUntil && dStr <= postponeUntil) continue;
-    const isToday = dStr === todayStr();
     const dayReport = state.reports.find(r => r.userId === userId && r.date === dStr);
-    if(isToday){
-      if(dayReport && isReportLate(dayReport)) negligentDates.push(dStr);
-    } else {
-      if(!dayReport || isReportLate(dayReport)) negligentDates.push(dStr);
+    if(!dayReport){
+      missedDates.push(dStr);
+    } else if(isReportLate(dayReport)){
+      lateCount++;
     }
   }
-  return { days: negligentDates.length, list: negligentDates };
+  const negligentFromLate = Math.floor(lateCount / 2);
+  return { days: missedDates.length + negligentFromLate, missed: missedDates.length, late: lateCount, list: missedDates };
 }
 function initials(name){
   if(!name) return '?';
@@ -1909,7 +1922,7 @@ function reportTimelineItem(r, isAdmin){
     <div class="timeline-item ${cls}">
       <div class="tl-head">
         <span class="badge ${statusBadgeClass(r.status)}">${r.status}</span>
-        ${late ? `<span class="badge badge-red">⏰ متأخر</span>` : ''}
+        ${late ? `<span class="badge badge-red">⏰ متأخر (تأخيرتان = يوم تقصير)</span>` : ''}
         <span class="tl-date">${formatDateTime(r.createdAt)} — ${escapeHtml(author ? author.name : '')}</span>
       </div>
       <div class="tl-desc">${escapeHtml(r.description)}</div>
@@ -2028,7 +2041,9 @@ function reportsAdminView(){
         </div>
       </div>
       <p style="color:var(--text-600); font-size:13px; margin-top:8px;">
-        يُحتسب اليوم "تقصير" لو العضو ما سجّلش تقرير خالص، أو سجّله بعد الساعة 1 الظهر.
+        كل يوم موعده النهائي هو الساعة 1 ظهرًا من اليوم التالي له. لو العضو سجّل خلال اليوم نفسه فهو "على الوقت".
+        لو سجّل بعد ما اليوم يخلص لكن قبل الساعة 1 ظهرًا اليوم التالي، يُحتسب "تأخير" — وكل تأخيرتين يتحولوا ليوم تقصير واحد.
+        لو محدش سجّل خالص لغاية الساعة 1 ظهرًا اليوم التالي، يُحتسب اليوم "تقصير" كامل مباشرة.
         عند الوصول لـ 6 أيام تقصير في الشهر يتم إيقاف العضو تلقائيًا (المدير مستثنى من هذا الاحتساب)، والمدير هو الوحيد اللي يقدر يرجّعه من صفحة الأعضاء.
         اختر أي شهر سابق من القائمة فوق عشان تراجع انتظام أي عضو خلال الشهور اللي فاتت.
       </p>
@@ -2039,7 +2054,7 @@ function reportsAdminView(){
             ${monthlyRows.map(row => `
               <tr>
                 <td class="cell-user">${avatarHtml(findUser(row.id))} ${escapeHtml(row.name)}</td>
-                <td><b>${row.days}</b> / 6</td>
+                <td><b>${row.days}</b> / 6 ${row.late % 2 === 1 ? `<span class="badge badge-amber" style="margin-inline-start:6px;">+ تأخير معلّق</span>` : ''}</td>
                 <td>${row.status==='disabled' && row.suspendedAuto
                   ? '<span class="badge badge-red">🚫 موقوف تلقائيًا (تقصير)</span>'
                   : row.status==='disabled'
