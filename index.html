@@ -135,6 +135,8 @@
   .nav-item:hover{background:rgba(255,255,255,.06); color:#fff;}
   .nav-item.active{background:var(--amber-500); color:var(--navy-950);}
   .nav-item .icon{width:18px;height:18px;}
+  .nav-badge{margin-inline-start:auto; min-width:19px; height:19px; padding:0 5px; border-radius:99px; background:var(--red-500); color:#fff; font-size:11px; font-weight:800; display:flex; align-items:center; justify-content:center; flex-shrink:0; animation:badgePop .25s ease;}
+  @keyframes badgePop{from{transform:scale(.4); opacity:0;} to{transform:scale(1); opacity:1;}}
   .sidebar-foot{border-top:1px solid rgba(255,255,255,.08); padding-top:14px; margin-top:10px;}
   .logout-btn{width:100%; justify-content:flex-start; background:rgba(222,77,77,.12); color:#F3A9A9;}
   .logout-btn:hover{background:var(--red-500); color:#fff;}
@@ -223,6 +225,8 @@
   .chat-target-btn{display:flex; align-items:center; gap:8px; width:100%; text-align:right; padding:10px 12px; border-radius:var(--radius-sm); border:1px solid transparent; background:transparent; cursor:pointer; font-family:inherit; font-size:13.5px; font-weight:700; color:var(--text-900);}
   .chat-target-btn:hover{background:var(--bg);}
   .chat-target-btn.active{background:var(--amber-100); color:var(--amber-600); border-color:var(--amber-500);}
+  .chat-target-btn span{overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .chat-target-badge{margin-inline-start:auto; min-width:19px; height:19px; padding:0 5px; border-radius:99px; background:var(--red-500); color:#fff; font-size:10.5px; font-weight:800; display:flex; align-items:center; justify-content:center; flex-shrink:0; animation:badgePop .25s ease;}
   .chat-main{display:flex; flex-direction:column; height:560px; padding:0 !important; overflow:hidden;}
   .chat-header{padding:14px 18px; border-bottom:1px solid var(--border); font-weight:800;}
   .chat-messages{flex:1; overflow-y:auto; padding:16px 18px; display:flex; flex-direction:column; gap:10px; background:var(--bg);}
@@ -277,10 +281,11 @@
   .bar-fill{height:100%; border-radius:99px;}
   .bar-val{width:34px; text-align:left; font-weight:700; color:var(--text-600); font-size:12px;}
 
-  .toast-container{position:fixed; bottom:22px; left:50%; transform:translateX(-50%); z-index:200; display:flex; flex-direction:column; gap:8px; align-items:center;}
-  .toast{background:var(--navy-950); color:#fff; padding:12px 20px; border-radius:99px; font-size:13.5px; font-weight:700; box-shadow:var(--shadow-lg); display:flex; align-items:center; gap:8px; animation:toastIn .25s ease;}
+  .toast-container{position:fixed; bottom:22px; left:50%; transform:translateX(-50%); z-index:200; display:flex; flex-direction:column; gap:8px; align-items:center; width:min(420px, calc(100vw - 32px));}
+  .toast{background:var(--navy-950); color:#fff; padding:12px 20px; border-radius:18px; font-size:13.5px; font-weight:700; line-height:1.6; box-shadow:var(--shadow-lg); display:flex; align-items:flex-start; gap:8px; animation:toastIn .25s ease; width:100%; word-break:break-word; white-space:pre-line;}
   .toast.ok{background:var(--green-500);}
   .toast.err{background:var(--red-500);}
+  .toast.chat-toast{background:var(--navy-800); cursor:pointer;}
   @keyframes toastIn{from{opacity:0; transform:translateY(10px);} to{opacity:1; transform:translateY(0);}}
 
   .modal-overlay{position:fixed; inset:0; background:rgba(10,15,30,.55); display:flex; align-items:center; justify-content:center; z-index:100; padding:20px;}
@@ -1133,7 +1138,8 @@ const state = {
   messages: [],
   resources: [],
   resourceColumns: [],
-  notifications: []
+  notifications: [],
+  chatUnread: {}   // { 'team' | '<userId>': عدد الرسائل غير المقروءة }
 };
 
 /* يجلب البيانات المطلوبة لعرض الصفحة الحالية من الباك إند */
@@ -1198,7 +1204,8 @@ const NOTIF_META = {
   task_assigned:       { icon: 'tasks', cls: '' },
   negligence_warning_4:{ icon: 'reports', cls: 'warn' },
   negligence_warning_5:{ icon: 'reports', cls: 'danger' },
-  negligence_removed:  { icon: 'ban', cls: 'danger' }
+  negligence_removed:  { icon: 'ban', cls: 'danger' },
+  message_received:    { icon: 'chat', cls: '' }
 };
 let notifPollTimer = null;
 function initNotifications(){
@@ -1261,6 +1268,14 @@ function renderNotifList(){
       el.classList.remove('unread');
       try { await apiFetch(`/notifications/${n.id}/read`, { method: 'PUT' }); } catch (err) { /* فشل هادئ */ }
     }
+    // إشعار رسالة شات: افتح صفحة الشات على نفس المحادثة (خاصة مع المُرسِل، أو الفريق كله)
+    if(n && n.type === 'message_received'){
+      toggleNotifPanel(false);
+      chatSelectedTarget = (n.relatedId && n.title && n.title.includes('خاصة')) ? String(n.relatedId) : 'team';
+      state.activePage = 'chat';
+      renderSidebar();
+      renderPage();
+    }
   }));
 }
 function toggleNotifPanel(force){
@@ -1274,6 +1289,113 @@ document.addEventListener('click', (e) => {
   const panel = $('#notifPanel');
   const bellWrap = e.target.closest('.notif-bell-wrap');
   if(panel && panel.classList.contains('open') && !bellWrap) toggleNotifPanel(false);
+});
+
+/* ============================================================
+   رسائل الشات — تتبّع غير المقروء + رنة صوتية + إشعار فوري بالنص كامل
+   (بيشتغل باستمرار طول ما المستخدم مسجّل دخوله، مش بس وهو فاتح صفحة
+   "الشات"، عشان يوصله تنبيه لحظي أيًا كانت الصفحة اللي هو فيها)
+   ============================================================ */
+
+/* مفتاح المحادثة من منظور المستخدم الحالي: 'team' لقناة الفريق، أو رقم الطرف التاني كنص */
+function messageConvKey(m){
+  if(m.recipientId === null || m.recipientId === undefined) return 'team';
+  const meId = state.currentUser.id;
+  return String(m.senderId === meId ? m.recipientId : m.senderId);
+}
+function totalChatUnread(){
+  return Object.values(state.chatUnread).reduce((sum, n) => sum + (n || 0), 0);
+}
+function chatLastSeenStorageKey(convKey){
+  return 'teamflow_chat_lastseen_' + state.currentUser.id + '_' + convKey;
+}
+function getChatLastSeenId(convKey){
+  return Number(localStorage.getItem(chatLastSeenStorageKey(convKey)) || 0);
+}
+function setChatLastSeenId(convKey, id){
+  localStorage.setItem(chatLastSeenStorageKey(convKey), String(id));
+}
+/* يعتبر محادثة معيّنة "متقروءة" بالكامل: يصفّر عدّادها ويحدّث آخر رسالة اتشافت */
+function markConversationRead(convKey){
+  if(!state.currentUser) return;
+  state.chatUnread[convKey] = 0;
+  const relevant = state.messages.filter(m => messageConvKey(m) === convKey);
+  const maxId = relevant.reduce((max, m) => Math.max(max, m.id), 0);
+  if(maxId) setChatLastSeenId(convKey, maxId);
+}
+/* تحديث شارة العدّاد في القائمة الجانبية + شارات كل محادثة في صفحة الشات (لو مفتوحة) بدون إعادة رسم كاملة */
+let lastRenderedChatBadgeTotal = -1;
+function renderChatBadges(){
+  const total = totalChatUnread();
+  if(total !== lastRenderedChatBadgeTotal){
+    lastRenderedChatBadgeTotal = total;
+    renderSidebar();
+  }
+  if(state.activePage === 'chat'){
+    $$('.chat-target-btn').forEach(btn => {
+      const key = btn.dataset.target === 'team' ? 'team' : btn.dataset.target;
+      const count = state.chatUnread[key] || 0;
+      let badge = btn.querySelector('.chat-target-badge');
+      if(count > 0){
+        if(!badge){ badge = document.createElement('span'); badge.className = 'chat-target-badge'; btn.appendChild(badge); }
+        badge.textContent = count > 99 ? '99+' : String(count);
+      } else if(badge){
+        badge.remove();
+      }
+    });
+  }
+}
+
+/* رنّة تنبيه قصيرة (صوت مُصنَّع بالكامل، من غير أي ملف خارجي) عند وصول رسالة جديدة */
+let audioCtx = null;
+function unlockChatAudio(){
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if(audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+  } catch (err) { /* المتصفح ممكن ميدعمش Web Audio — تجاهل هادئ */ }
+}
+document.addEventListener('click', unlockChatAudio, { once: true });
+document.addEventListener('touchstart', unlockChatAudio, { once: true });
+function playChatRing(){
+  try {
+    unlockChatAudio();
+    if(!audioCtx) return;
+    const now = audioCtx.currentTime;
+    [880, 1180].forEach((freq, i) => {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      const start = now + i * 0.13;
+      gain.gain.setValueAtTime(0, start);
+      gain.gain.linearRampToValueAtTime(0.2, start + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.24);
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start(start);
+      osc.stop(start + 0.26);
+    });
+  } catch (err) { /* تجاهل هادئ لو المتصفح رفض تشغيل الصوت */ }
+}
+
+/* إشعار المتصفح/الهاتف (يظهر حتى لو التطبيق شغّال في الخلفية على الموبايل) */
+function requestChatNotifPermission(){
+  if(!('Notification' in window)) return;
+  if(Notification.permission === 'default') Notification.requestPermission().catch(() => {});
+}
+function showBrowserChatNotification(title, body){
+  if(!('Notification' in window) || Notification.permission !== 'granted') return;
+  try {
+    const n = new Notification(title, { body, tag: 'itqan-chat-' + Date.now() });
+    n.onclick = () => { try { window.focus(); } catch (err) {} };
+  } catch (err) { /* تجاهل هادئ */ }
+}
+
+/* لما المستخدم يرجع للتاب وهو فاتح صفحة الشات، اعتبر المحادثة المفتوحة اتقرت */
+document.addEventListener('visibilitychange', () => {
+  if(document.visibilityState === 'visible' && state.currentUser && state.activePage === 'chat'){
+    markConversationRead(String(chatSelectedTarget));
+    renderChatBadges();
+  }
 });
 
 const $ = (sel, ctx) => (ctx||document).querySelector(sel);
@@ -1355,12 +1477,19 @@ function priorityBadgeClass(p){
   return 'badge-grey';
 }
 
-function toast(msg, type){
+function toast(msg, type, opts){
+  opts = opts || {};
   const box = document.createElement('div');
-  box.className = 'toast' + (type ? ' '+type : '');
-  box.textContent = msg;
+  box.className = 'toast' + (type ? ' '+type : '') + (opts.cls ? ' '+opts.cls : '');
+  // نص الإشعار يظهر كاملاً دايمًا (من غير أي اقتصاص)، والعنوان (لو موجود) بيتحط
+  // في سطر منفصل فوقه — .toast معمول لها white-space:pre-line عشان تحترم السطر ده
+  box.textContent = opts.title ? (opts.title + '\n' + msg) : msg;
+  if(opts.onClick){
+    box.style.cursor = 'pointer';
+    box.addEventListener('click', () => { opts.onClick(); box.remove(); });
+  }
   $('#toastContainer').appendChild(box);
-  setTimeout(() => box.remove(), 3200);
+  setTimeout(() => box.remove(), opts.duration || 3200);
 }
 
 function avatarHtml(user, size){
@@ -1519,6 +1648,9 @@ async function logout(){
   state.resources = [];
   state.resourceColumns = [];
   state.notifications = [];
+  state.chatUnread = {};
+  chatWatchReady = false;
+  lastRenderedChatBadgeTotal = -1;
   $('#appScreen').classList.add('hidden');
   $('#authScreen').classList.remove('hidden');
   switchAuthTab('login');
@@ -1567,6 +1699,8 @@ async function enterApp(showWelcome){
   }
   startPresence();
   initNotifications();
+  initChatPolling();
+  requestChatNotifPermission();
   renderSidebar();
   renderTopbar();
   renderPage();
@@ -1607,15 +1741,20 @@ async function tryRestoreSession(){
 
 function renderSidebar(){
   const isAdmin = state.currentUser.role === 'admin';
+  const chatUnreadTotal = totalChatUnread();
   $('#navList').innerHTML = NAV_ITEMS
     .filter(item => !item.adminOnly || isAdmin)
-    .map(item => `
+    .map(item => {
+      const badge = (item.key === 'chat' && chatUnreadTotal > 0)
+        ? `<span class="nav-badge">${chatUnreadTotal > 99 ? '99+' : chatUnreadTotal}</span>` : '';
+      return `
       <li>
         <button class="nav-item ${state.activePage===item.key?'active':''}" data-page="${item.key}">
-          ${ICONS[item.icon]} <span>${item.label}</span>
+          ${ICONS[item.icon]} <span>${item.label}</span>${badge}
         </button>
       </li>
-    `).join('');
+    `;
+    }).join('');
 
   $$('#navList .nav-item').forEach(btn => {
     btn.addEventListener('click', async () => {
@@ -1672,7 +1811,6 @@ function closeSidebarMobile(){
 }
 
 function renderPage(){
-  if(state.activePage !== 'chat') stopChatPolling();
   const content = $('#pageContent');
   if(state.activePage === 'tasks') content.innerHTML = pageTasks();
   else if(state.activePage === 'reports') content.innerHTML = pageReports();
@@ -2378,9 +2516,23 @@ $('#resRowForm').addEventListener('submit', async (e) => {
    ============================================================ */
 let chatSelectedTarget = 'team'; // 'team' أو رقم (كنص) لعضو معيّن
 let chatPollTimer = null;
+let chatWatchReady = false; // false = أول تحميل بعد الدخول (نحسب الغير مقروء بهدوء من غير رنة/توست/إشعار)
 
+/* يشتغل طول ما المستخدم مسجّل دخوله (مش مربوط بصفحة "الشات" بس)، عشان يوصله
+   تنبيه لحظي برسالة جديدة أيًا كانت الصفحة اللي هو فيها دلوقتي */
+function initChatPolling(){
+  stopChatPolling();
+  chatWatchReady = false;
+  loadMessages();
+  chatPollTimer = setInterval(loadMessages, 5000);
+}
 function stopChatPolling(){
   if(chatPollTimer){ clearInterval(chatPollTimer); chatPollTimer = null; }
+}
+
+function chatTargetBadgeHtml(key){
+  const count = state.chatUnread[key] || 0;
+  return count > 0 ? `<span class="chat-target-badge">${count > 99 ? '99+' : count}</span>` : '';
 }
 
 function pageChat(){
@@ -2396,11 +2548,11 @@ function pageChat(){
     <div class="chat-shell">
       <div class="card chat-sidebar">
         <button type="button" class="chat-target-btn ${chatSelectedTarget==='team'?'active':''}" data-target="team">
-          ${ICONS.chat} <span>الفريق كله</span>
+          ${ICONS.chat} <span>الفريق كله</span>${chatTargetBadgeHtml('team')}
         </button>
         ${others.map(u => `
           <button type="button" class="chat-target-btn ${String(chatSelectedTarget)===String(u.id)?'active':''}" data-target="${u.id}">
-            ${avatarWithPresence(u)} <span>${escapeHtml(u.name)}${u.role==='admin'?' (مدير)':''}</span>
+            ${avatarWithPresence(u)} <span>${escapeHtml(u.name)}${u.role==='admin'?' (مدير)':''}</span>${chatTargetBadgeHtml(String(u.id))}
           </button>
         `).join('') || '<p style="font-size:12.5px;color:var(--text-400);padding:8px;">لا يوجد أعضاء تانيين بعد</p>'}
       </div>
@@ -2449,11 +2601,60 @@ function renderChatMessages(){
   if(wasAtBottom) wrap.scrollTop = wrap.scrollHeight;
 }
 
+/* يجيب الرسائل، يكتشف الجديد منها (اللي مش مبعوت من المستخدم نفسه)، ويعمل
+   لكل رسالة جديدة: زيادة عدّاد المحادثة الغير مقروءة (لو مش مفتوحة وظاهرة
+   دلوقتي فعلاً) + رنة صوتية + توست بنص الرسالة كامل + إشعار متصفح/هاتف */
 async function loadMessages(){
+  if(!state.currentUser) return; // حماية من أي استدعاء متأخر بعد تسجيل الخروج
   try {
     const data = await apiFetch('/messages');
-    state.messages = data.messages || [];
-    renderChatMessages();
+    const fresh = data.messages || [];
+    const meId = state.currentUser.id;
+    const prevIds = new Set(state.messages.map(m => m.id));
+    const openConvKey = state.activePage === 'chat' ? String(chatSelectedTarget) : null;
+    const tabVisible = document.visibilityState === 'visible';
+
+    if(chatWatchReady){
+      fresh.filter(m => m.senderId !== meId && !prevIds.has(m.id)).forEach(m => {
+        const convKey = messageConvKey(m);
+        const isOpenAndVisible = tabVisible && openConvKey !== null && convKey === openConvKey;
+        state.messages.push(m); // عشان markConversationRead تلاقيها ضمن state.messages فورًا
+        if(isOpenAndVisible){
+          setChatLastSeenId(convKey, m.id);
+        } else {
+          state.chatUnread[convKey] = (state.chatUnread[convKey] || 0) + 1;
+          const author = findUser(m.senderId);
+          const authorName = author ? author.name : 'عضو';
+          const label = convKey === 'team' ? `${authorName} — الفريق كله` : `رسالة خاصة من ${authorName}`;
+          toast(m.content, 'ok', { title: `💬 ${label}`, duration: 6000, cls: 'chat-toast', onClick: () => {
+            chatSelectedTarget = convKey;
+            state.activePage = 'chat';
+            renderSidebar();
+            renderPage();
+          }});
+          playChatRing();
+          showBrowserChatNotification(label, m.content);
+        }
+      });
+    } else {
+      // أول تحميل بعد الدخول: احسب الغير مقروء بالفعل من قبل (بمقارنة آخر رسالة
+      // اتشافت في كل محادثة) من غير ما نعمل رنة/توست لكل الرسائل القديمة دي
+      const byConv = {};
+      fresh.forEach(m => {
+        if(m.senderId === meId) return;
+        const convKey = messageConvKey(m);
+        if(tabVisible && openConvKey !== null && convKey === openConvKey) return; // المحادثة المفتوحة دلوقتي تُعتبر مقروءة
+        const lastSeen = getChatLastSeenId(convKey);
+        if(m.id > lastSeen) byConv[convKey] = (byConv[convKey] || 0) + 1;
+      });
+      state.chatUnread = byConv;
+      if(openConvKey !== null){ state.messages = fresh; markConversationRead(openConvKey); }
+      chatWatchReady = true;
+    }
+
+    state.messages = fresh;
+    if(state.activePage === 'chat') renderChatMessages();
+    renderChatBadges();
   } catch (err) {
     // فشل هادئ أثناء التحديث التلقائي (polling) عشان ما نزعجش المستخدم برسائل خطأ متكررة
   }
@@ -2465,9 +2666,11 @@ function bindChatEvents(){
     renderPage();
   }));
 
+  // المحادثة اللي المستخدم فاتحها دلوقتي تُعتبر مقروءة فورًا
+  markConversationRead(String(chatSelectedTarget));
+  renderChatBadges();
   loadMessages();
-  stopChatPolling();
-  chatPollTimer = setInterval(loadMessages, 4000);
+  requestChatNotifPermission();
 
   // حذف رسالة (بتحذفها من قاعدة البيانات فعليًا، فتختفي عند الطرفين مباشرة) — تفويض
   // للحدث على الحاوية عشان يفضل شغال حتى بعد إعادة رسم الرسائل كل 4 ثواني
