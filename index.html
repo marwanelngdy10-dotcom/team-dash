@@ -1452,6 +1452,14 @@ function initials(name){
   const parts = name.trim().split(/\s+/);
   return (parts[0][0]||'') + (parts[1]?parts[1][0]:'');
 }
+/* تسمية الدور الظاهرة في الواجهة — ثلاث مستويات: سوبر أدمن / مدير / عضو
+   (السوبر أدمن يشوف كل بيانات الفريق، المدير العادي يشوف أعضاء الفريق
+   بس، والعضو يشوف بياناته هو فقط — نفس التقسيم المطبَّق فعليًا في RLS) */
+function roleLabel(u){
+  if(!u) return '';
+  if(u.role === 'admin') return u.isSuperAdmin ? 'سوبر أدمن' : 'مدير';
+  return 'عضو';
+}
 function findUser(id){ return state.users.find(u => u.id === id); }
 function userTasks(userId){ return state.tasks.filter(t => t.assignedTo === userId); }
 function userReports(userId){ return state.reports.filter(r => r.userId === userId); }
@@ -1764,7 +1772,7 @@ function renderTopbar(){
     ${avatarHtml(u)}
     <div class="user-chip-info">
       <div class="user-chip-name">${escapeHtml(u.name)}</div>
-      <div class="user-chip-role">${u.role === 'admin' ? 'مدير' : 'عضو'}</div>
+      <div class="user-chip-role">${roleLabel(u)}</div>
     </div>
   `;
   $('#hamburgerBtn').innerHTML = ICONS.menu;
@@ -2050,9 +2058,10 @@ function reportsAdminView(){
     .filter(r => r.postponeUntil && r.postponeApproved !== true && r.postponeApproved !== false)
     .slice().sort((a,b) => (b.createdAt||'').localeCompare(a.createdAt||''));
 
+  const viewerIsSuper1 = !!state.currentUser.isSuperAdmin;
   return `
     <div class="page-head">
-      <div><h1>التقارير</h1><p>مراجعة تقارير التعلم لجميع الأعضاء</p></div>
+      <div><h1>التقارير</h1><p>${viewerIsSuper1 ? 'مراجعة تقارير التعلم لجميع الأعضاء' : 'مراجعة تقارير التعلم لأعضاء فريقك'} — المدير المسؤول والسوبر أدمن مستثنيان من احتساب التقصير</p></div>
     </div>
 
     ${pendingPostpone.length ? `
@@ -2641,7 +2650,7 @@ function pageChat(){
         </button>
         ${others.map(u => `
           <button type="button" class="chat-target-btn ${String(chatSelectedTarget)===String(u.id)?'active':''}" data-target="${u.id}">
-            ${avatarWithPresence(u)} <span>${escapeHtml(u.name)}${u.role==='admin'?' (مدير)':''}</span>
+            ${avatarWithPresence(u)} <span>${escapeHtml(u.name)}${u.role==='admin'?` (${roleLabel(u)})`:''}</span>
           </button>
         `).join('') || '<p style="font-size:12.5px;color:var(--text-400);padding:8px;">لا يوجد أعضاء تانيين بعد</p>'}
       </div>
@@ -2750,12 +2759,19 @@ function bindChatEvents(){
    PAGE: الأعضاء (Admin فقط)
    ============================================================ */
 function pageMembers(){
-  const pending = state.users.filter(u => u.status === 'pending');
-  const active = state.users.filter(u => u.status !== 'pending');
+  const viewerIsSuper0 = !!state.currentUser.isSuperAdmin;
+  // المدير العادي (مسؤول مش سوبر) يشوف أعضاء الفريق (role='member') بس
+  // + نفسه — مش قادر يشوف صفوف مدراء تانيين ولا السوبر أدمن. السوبر
+  // أدمن يشوف الكل بلا استثناء (يطابق تقييد الصلاحيات على مستوى RLS).
+  const visibleUsers = viewerIsSuper0
+    ? state.users
+    : state.users.filter(u => u.role === 'member' || u.id === state.currentUser.id);
+  const pending = visibleUsers.filter(u => u.status === 'pending');
+  const active = visibleUsers.filter(u => u.status !== 'pending');
 
   return `
     <div class="page-head">
-      <div><h1>الأعضاء</h1><p>إدارة أعضاء الفريق وطلبات الانضمام</p></div>
+      <div><h1>الأعضاء</h1><p>${viewerIsSuper0 ? 'إدارة كل حسابات الفريق وطلبات الانضمام' : 'إدارة أعضاء فريقك وطلبات الانضمام'}</p></div>
       <button class="btn btn-amber" id="openMemberModalBtn">${ICONS.plus} إضافة عضو</button>
     </div>
 
@@ -2805,7 +2821,7 @@ function pageMembers(){
                       <option value="member" ${u.role==='member'?'selected':''}>عضو</option>
                       <option value="admin" ${u.role==='admin'?'selected':''}>مدير</option>
                     </select>
-                  ` : `<span style="font-size:12.5px;">${u.role==='admin' ? 'مدير' : 'عضو'}</span>`}
+                  ` : `<span style="font-size:12.5px;">${roleLabel(u)}</span>`}
                 </td>
                 <td>${userTasks(u.id).length}</td>
                 <td>${lastReport ? `${formatDateTime(lastReport.createdAt)}${isReportLate(lastReport) ? ' <span class="badge badge-red">متأخر</span>' : ''}` : '<span style="color:var(--text-400);">لا يوجد</span>'}</td>
@@ -2961,7 +2977,7 @@ function bindTasksEvents(){
 
 function populateAssigneeSelect(){
   const members = state.users.filter(u => u.status === 'active');
-  $('#taskAssignee').innerHTML = members.map(u => `<option value="${u.id}">${escapeHtml(u.name)} ${u.role==='admin'?'(مدير)':''}</option>`).join('');
+  $('#taskAssignee').innerHTML = members.map(u => `<option value="${u.id}">${escapeHtml(u.name)} ${u.role==='admin'?`(${roleLabel(u)})`:''}</option>`).join('');
 }
 
 function openTaskModal(taskId){
