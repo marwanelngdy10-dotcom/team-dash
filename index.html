@@ -937,6 +937,13 @@ async function usersUpdateRole(id, role){
   if(error) throw new Error(error.message || 'تعذّر تحديث الصلاحية');
   return { message: `تم تحديث صلاحية ${data.name}`, user: data };
 }
+/* استثناء/إلغاء استثناء حساب من احتساب التقصير — مقصور على السوبر أدمن
+   على مستوى قاعدة البيانات (guard_users_update من v15) */
+async function usersUpdateNegligenceExempt(id, exempt){
+  const { data, error } = await sb.from('users').update({ negligenceExempt: exempt }).eq('id', id).select().single();
+  if(error) throw new Error(error.message || 'تعذّر تحديث حالة الاستثناء');
+  return { message: exempt ? `تم استثناء ${data.name} من احتساب التقصير` : `تم إلغاء استثناء ${data.name} من احتساب التقصير`, user: data };
+}
 
 /* تعيين كلمة مرور جديدة لعضو (مدير فقط) — عبر Supabase Edge Function بصلاحية service_role،
    لأن كلمات المرور مشفّرة تشفير أحادي الاتجاه ومفيش طريقة "لعرض" القديمة أبدًا */
@@ -1123,6 +1130,7 @@ async function apiFetch(path, options = {}){
   if((m = path.match(/^\/users\/(\d+)\/approve$/)) && method === 'PUT') return usersApprove(Number(m[1]));
   if((m = path.match(/^\/users\/(\d+)\/toggle-status$/)) && method === 'PUT') return usersToggleStatus(Number(m[1]));
   if((m = path.match(/^\/users\/(\d+)\/role$/)) && method === 'PUT') return usersUpdateRole(Number(m[1]), body.role);
+  if((m = path.match(/^\/users\/(\d+)\/negligence-exempt$/)) && method === 'PUT') return usersUpdateNegligenceExempt(Number(m[1]), !!body.exempt);
   if((m = path.match(/^\/users\/(\d+)\/reset-password$/)) && method === 'PUT') return usersResetPassword(Number(m[1]), body.newPassword);
   if((m = path.match(/^\/users\/(\d+)$/)) && method === 'DELETE') return usersDelete(Number(m[1]));
 
@@ -1898,16 +1906,12 @@ function pageReports(){
   return isAdmin ? reportsAdminView() : reportsMemberView();
 }
 
-function reportsMemberView(){
+function myReportSubmissionSection(){
   const myTasks = userTasks(state.currentUser.id);
   const myReports = userReports(state.currentUser.id).slice().sort((a,b) => b.date.localeCompare(a.date));
   const predicted = predictedReportTarget(state.currentUser.id);
 
   return `
-    <div class="page-head">
-      <div><h1>التقارير</h1><p>سجّل حالة تعلمك اليومية وتابع تقاريرك السابقة</p></div>
-    </div>
-
     <div class="card" style="padding:22px; margin-bottom:26px;">
       <h3 class="section-title">${ICONS.bulb} تقرير جديد</h3>
       <div class="badge ${predicted.late ? 'badge-amber' : 'badge-green'}" style="display:inline-flex; gap:6px; padding:10px 14px; font-size:13px; margin-bottom:14px;">
@@ -1949,6 +1953,16 @@ function reportsMemberView(){
     ${myReports.length ? `<div class="timeline">${myReports.map(r => reportTimelineItem(r, false)).join('')}</div>` : emptyState('reports','لا توجد تقارير بعد','ابدأ بتسجيل أول تقرير تعلم لك أعلاه')}
   `;
 }
+
+function reportsMemberView(){
+  return `
+    <div class="page-head">
+      <div><h1>التقارير</h1><p>سجّل حالة تعلمك اليومية وتابع تقاريرك السابقة</p></div>
+    </div>
+    ${myReportSubmissionSection()}
+  `;
+}
+
 
 let editingReportId = null;
 
@@ -2044,25 +2058,42 @@ function reportsAdminView(){
     'يتم التعلم': state.reports.filter(r=>r.status==='يتم التعلم').length,
     'لن يتم التعلم': state.reports.filter(r=>r.status==='لن يتم التعلم').length
   };
-  const members = state.users.filter(u => u.role === 'member');
+  const viewerIsSuper1 = !!state.currentUser.isSuperAdmin;
+  const viewerIsManager1 = state.currentUser.role === 'admin' && !viewerIsSuper1;
+  /* من v15: المدير العادي بقى خاضع لاحتساب التقصير زي أي عضو (إلا لو
+     السوبر أدمن استثناه يدويًا) — فالسوبر أدمن يراجع أعضاء الفريق +
+     المدراء العاديين معًا هنا، والمدير العادي لسه يراجع أعضاء فريقه بس
+     (نفس تقييد الرؤية الموجود أصلًا في RLS) */
+  const members = viewerIsSuper1
+    ? state.users.filter(u => !u.isSuperAdmin)
+    : state.users.filter(u => u.role === 'member');
   const negligenceRows = members
     .map(m => ({name:m.name, id:m.id, count: negligenceCount(m.id)}))
     .sort((a,b) => b.count - a.count);
 
   const selectedMonth = monthOffsetDate(reportsMonthOffset);
   const monthlyRows = members
-    .map(m => ({ id:m.id, name:m.name, status:m.status, suspendedAuto: m.suspendedAuto, ...monthlyNegligentDays(m.id, selectedMonth) }))
+    .map(m => ({ id:m.id, name:m.name, status:m.status, suspendedAuto: m.suspendedAuto, role:m.role, exempt: !!m.negligenceExempt, ...monthlyNegligentDays(m.id, selectedMonth) }))
     .sort((a,b) => b.days - a.days);
 
   const pendingPostpone = state.reports
     .filter(r => r.postponeUntil && r.postponeApproved !== true && r.postponeApproved !== false)
     .slice().sort((a,b) => (b.createdAt||'').localeCompare(a.createdAt||''));
 
-  const viewerIsSuper1 = !!state.currentUser.isSuperAdmin;
+  const myNeg = viewerIsManager1 ? monthlyNegligentDays(state.currentUser.id, new Date()) : null;
+  const myExempt = !!state.currentUser.negligenceExempt;
+
   return `
     <div class="page-head">
-      <div><h1>التقارير</h1><p>${viewerIsSuper1 ? 'مراجعة تقارير التعلم لجميع الأعضاء' : 'مراجعة تقارير التعلم لأعضاء فريقك'} — المدير المسؤول والسوبر أدمن مستثنيان من احتساب التقصير</p></div>
+      <div><h1>التقارير</h1><p>${viewerIsSuper1 ? 'مراجعة تقارير التعلم لجميع الأعضاء والمدراء' : 'مراجعة تقارير التعلم لأعضاء فريقك'} — السوبر أدمن بس هو المستثنى تلقائيًا من احتساب التقصير (وأي حساب استثناه السوبر أدمن يدويًا)</p></div>
     </div>
+
+    ${viewerIsManager1 ? `
+    <div class="section-block">
+      <h3 class="section-title">تقاريري — أنت خاضع لاحتساب التقصير زي أي عضو${myExempt ? ' <span class="badge badge-green">مستثنى من الاحتساب بواسطة السوبر أدمن</span>' : ''}</h3>
+      ${!myExempt ? `<div class="badge ${myNeg.days>=4?'badge-red':myNeg.days>=1?'badge-amber':'badge-green'}" style="display:inline-flex; padding:10px 14px; font-size:13px; margin-bottom:14px;">أيام التقصير هذا الشهر: <b style="margin-inline-start:4px;">${myNeg.days} / 6</b></div>` : ''}
+      ${myReportSubmissionSection()}
+    </div>` : ''}
 
     ${pendingPostpone.length ? `
     <div class="section-block">
@@ -2103,7 +2134,7 @@ function reportsAdminView(){
         كل يوم موعده النهائي هو الساعة 4 عصرًا من اليوم التالي له. لو العضو سجّل خلال اليوم نفسه فهو "على الوقت".
         لو سجّل بعد ما اليوم يخلص لكن قبل الساعة 4 عصرًا اليوم التالي (سواء قبل الساعة 1 ظهرًا أو بعدها)، يُحتسب "تأخير" — وكل تأخيرتين يتحولوا ليوم تقصير واحد.
         لو محدش سجّل خالص لغاية الساعة 4 عصرًا اليوم التالي، يُحتسب اليوم "تقصير" كامل مباشرة.
-        عند الوصول لـ 6 أيام تقصير في الشهر يتم إيقاف العضو تلقائيًا (المدير مستثنى من هذا الاحتساب)، والمدير هو الوحيد اللي يقدر يرجّعه من صفحة الأعضاء.
+        عند الوصول لـ 6 أيام تقصير في الشهر يتم إيقاف الحساب (عضو أو مدير عادي) تلقائيًا — السوبر أدمن بس مستثنى دايمًا، وأي حساب استثناه السوبر أدمن يدويًا. رجوع العضو الموقوف بيد أي مدير مسؤول من صفحة "الأعضاء"، أما المدير العادي الموقوف فرجوعه مقصور على السوبر أدمن بس.
         اختر أي شهر سابق من القائمة فوق عشان تراجع انتظام أي عضو خلال الشهور اللي فاتت، واضغط "التفاصيل" جنب أي عضو عشان تشوف حالة كل يوم بالظبط ووقت التسجيل.
       </p>
       <div class="table-wrap">
@@ -2112,8 +2143,8 @@ function reportsAdminView(){
           <tbody>
             ${monthlyRows.map(row => `
               <tr>
-                <td class="cell-user">${avatarHtml(findUser(row.id))} ${escapeHtml(row.name)}</td>
-                <td><b>${row.days}</b> / 6 ${row.late % 2 === 1 ? `<span class="badge badge-amber" style="margin-inline-start:6px;">+ تأخير معلّق</span>` : ''}</td>
+                <td class="cell-user">${avatarHtml(findUser(row.id))} ${escapeHtml(row.name)}${row.role==='admin' ? ` <span class="badge badge-navy" style="margin-inline-start:6px;">مدير</span>` : ''}</td>
+                <td>${row.exempt ? '<span class="badge badge-green">مستثنى من الاحتساب</span>' : `<b>${row.days}</b> / 6 ${row.late % 2 === 1 ? `<span class="badge badge-amber" style="margin-inline-start:6px;">+ تأخير معلّق</span>` : ''}`}</td>
                 <td>${row.status==='disabled' && row.suspendedAuto
                   ? '<span class="badge badge-red">🚫 موقوف تلقائيًا (تقصير)</span>'
                   : row.status==='disabled'
@@ -2215,9 +2246,12 @@ function renderAdminReportsList(filterId, filterDate){
 
   let missingHtml = '';
   if(filterDate){
-    const members = state.users.filter(u => u.role === 'member' && u.status !== 'pending');
+    const viewerIsSuper2 = !!(state.currentUser && state.currentUser.isSuperAdmin);
+    const trackedMembers = viewerIsSuper2
+      ? state.users.filter(u => !u.isSuperAdmin && u.status !== 'pending')
+      : state.users.filter(u => u.role === 'member' && u.status !== 'pending');
     const reportedIds = new Set(state.reports.filter(r => r.date === filterDate).map(r => r.userId));
-    const missing = members.filter(m => !reportedIds.has(m.id));
+    const missing = trackedMembers.filter(m => !reportedIds.has(m.id));
     if(missing.length){
       missingHtml = `
         <div class="card" style="padding:16px 18px; margin-bottom:16px; border-color:var(--red-500);">
@@ -2825,7 +2859,11 @@ function pageMembers(){
                 </td>
                 <td>${userTasks(u.id).length}</td>
                 <td>${lastReport ? `${formatDateTime(lastReport.createdAt)}${isReportLate(lastReport) ? ' <span class="badge badge-red">متأخر</span>' : ''}` : '<span style="color:var(--text-400);">لا يوجد</span>'}</td>
-                <td>${u.role==='admin' ? '<span style="color:var(--text-400);">—</span>' : `${monthlyNegligentDays(u.id, new Date()).days} / 6`}</td>
+                <td>${isSuper
+                    ? '<span style="color:var(--text-400);">—</span>'
+                    : u.negligenceExempt
+                      ? '<span class="badge badge-green">مستثنى</span>'
+                      : `${monthlyNegligentDays(u.id, new Date()).days} / 6`}</td>
                 <td>${u.status==='active'
                     ? '<span class="badge badge-green">نشط</span>'
                     : u.suspendedAuto
@@ -2834,6 +2872,7 @@ function pageMembers(){
                 <td class="row-actions">
                   ${!isSelf ? `
                     ${(!isSuper && canManageTarget) ? `<button class="btn btn-ghost btn-sm toggle-status-btn" data-id="${u.id}">${u.status==='active'?'تعطيل':'تفعيل'}</button>` : ''}
+                    ${(viewerIsSuper && !isSuper) ? `<button class="btn btn-ghost btn-sm toggle-negligence-exempt-btn" data-id="${u.id}" title="متاح للسوبر أدمن بس">${u.negligenceExempt ? 'إلغاء استثناء التقصير' : 'استثناء من التقصير'}</button>` : ''}
                     ${viewerIsSuper ? `<button class="btn btn-ghost btn-sm reset-pwd-btn" data-id="${u.id}" data-name="${escapeHtml(u.name)}">${ICONS.eyeOff} كلمة المرور</button>` : ''}
                     ${(!isSuper && canManageTarget) ? `<button class="btn btn-danger btn-sm btn-icon delete-member-btn" data-id="${u.id}" aria-label="حذف">${ICONS.trash}</button>` : ''}
                   ` : (isSuper ? `<button class="btn btn-danger btn-sm delete-self-btn" data-id="${u.id}">${ICONS.trash || ''} حذف حسابي</button>` : `<span style="font-size:12px;color:var(--text-400);">أنت</span>`)}
@@ -3039,7 +3078,12 @@ $('#taskForm').addEventListener('submit', async (e) => {
 
 function bindReportsEvents(){
   const isAdmin = state.currentUser.role === 'admin';
-  if(!isAdmin){
+  const isSuper = !!state.currentUser.isSuperAdmin;
+  /* من v15: أي حد مش سوبر أدمن (عضو أو مدير عادي) بيشوف قسم "تقرير
+     جديد" الخاص بيه، لأنه بقى خاضع لاحتساب التقصير زي أي عضو */
+  const showsOwnReportForm = !isSuper;
+
+  if(showsOwnReportForm){
     reportPickedStatus = null;
     $$('.status-pill').forEach(pill => pill.addEventListener('click', () => {
       reportPickedStatus = pill.dataset.status;
@@ -3048,7 +3092,8 @@ function bindReportsEvents(){
       const postponeRow = $('#postponeRow');
       if(postponeRow) postponeRow.classList.toggle('hidden', reportPickedStatus !== 'لن يتم التعلم');
     }));
-    $('#reportForm').addEventListener('submit', async (e) => {
+    const reportForm = $('#reportForm');
+    if(reportForm) reportForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       const form = e.target;
       if(!reportPickedStatus){ toast('يرجى اختيار حالة التعلم', 'err'); return; }
@@ -3072,8 +3117,14 @@ function bindReportsEvents(){
         setFormBusy(form, false);
       }
     });
-    bindReportOwnerEvents(document);
-  } else {
+    /* لغير المدير (عضو عادي) — الصفحة كلها هي قسم التقرير الخاص بيه بس،
+       فلازم نربط أزرار تعديل/حذف تقاريره هنا. المدير العادي بياخد نفس
+       الأزرار تلقائيًا لاحقًا عبر bindPostponeApprovalEvents في فرع
+       isAdmin تحت (اللي بيغطي المستند كله بما فيه قسم تقاريره هو). */
+    if(!isAdmin) bindReportOwnerEvents(document);
+  }
+
+  if(isAdmin){
     bindPostponeApprovalEvents(document);
     const monthSel = $('#reportsMonthSelect');
     if(monthSel) monthSel.addEventListener('change', () => {
@@ -3177,6 +3228,18 @@ function bindMembersEvents(){
       toast(data.message || 'تم تحديث الصلاحية', 'ok');
     } catch (err) {
       sel.value = prevValue;
+      toast(err.message, 'err');
+    }
+  }));
+  $$('.toggle-negligence-exempt-btn').forEach(btn => btn.addEventListener('click', async () => {
+    const target = findUser(Number(btn.dataset.id));
+    const newExempt = !(target && target.negligenceExempt);
+    try {
+      const data = await apiFetch(`/users/${btn.dataset.id}/negligence-exempt`, { method: 'PUT', body: JSON.stringify({ exempt: newExempt }) });
+      await refreshData();
+      renderPage();
+      toast(data.message || 'تم تحديث حالة الاستثناء', 'ok');
+    } catch (err) {
       toast(err.message, 'err');
     }
   }));
