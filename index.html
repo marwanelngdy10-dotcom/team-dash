@@ -402,8 +402,8 @@
         <p class="auth-form-desc">سجّل الدخول للمتابعة إلى لوحة الفريق</p>
         <div id="loginMsg"></div>
         <div class="form-row">
-          <label for="loginEmail">البريد الإلكتروني</label>
-          <input type="email" id="loginEmail" required placeholder="name@company.com" autocomplete="username">
+          <label for="loginEmail">اسم المستخدم أو البريد الإلكتروني</label>
+          <input type="text" id="loginEmail" required placeholder="marwan أو name@company.com" autocomplete="username">
         </div>
         <div class="form-row">
           <label for="loginPassword">كلمة المرور</label>
@@ -430,6 +430,14 @@
         <div class="form-row">
           <label for="regEmail">البريد الإلكتروني</label>
           <input type="email" id="regEmail" required placeholder="name@company.com" autocomplete="username">
+        </div>
+        <div class="form-row">
+          <label for="regUsername">اسم المستخدم (Username)</label>
+          <input type="text" id="regUsername" required placeholder="مثال: marwan" pattern="[A-Za-z0-9_.]{3,30}" title="حروف إنجليزية وأرقام و _ و . فقط، من 3 لـ30 حرف">
+        </div>
+        <div class="form-row">
+          <label for="regPhone">رقم الهاتف</label>
+          <input type="tel" id="regPhone" required placeholder="مثال: 01010988730">
         </div>
         <div class="form-row">
           <label for="regPassword">كلمة المرور</label>
@@ -567,6 +575,41 @@
     </div>
   </div>
 </div>
+
+<!-- ============ إكمال البيانات الإلزامي (يوزر نيم + تليفون) ============
+     يظهر إجباريًا لأي حساب لسه ماعندوش username أو phone — بيحصل مع
+     الحسابات اللي المدير بينشئها (بيحط إيميل واسم وكلمة سر بس)، أول ما
+     صاحب الحساب يسجّل دخول لأول مرة. مفيش زرار إغلاق — لازم يكمّل
+     البيانات أو يسجّل خروج. -->
+<div class="modal-overlay hidden" id="profileCompleteOverlay">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>خطوة أخيرة قبل المتابعة</h3>
+    </div>
+    <div class="modal-body">
+      <p style="color:var(--text-600); font-size:13px; margin-top:0; margin-bottom:16px;">
+        حسابك تم إنشاؤه من المدير — محتاج تكمّل بياناتك دي الأول عشان تقدر تستخدم النظام.
+      </p>
+      <form id="profileCompleteForm">
+        <div id="profileCompleteMsg"></div>
+        <div class="form-row">
+          <label for="pcUsername">اسم المستخدم (Username)</label>
+          <input type="text" id="pcUsername" required placeholder="مثال: marwan" pattern="[A-Za-z0-9_.]{3,30}" title="حروف إنجليزية وأرقام و _ و . فقط، من 3 لـ30 حرف">
+        </div>
+        <div class="form-row">
+          <label for="pcPhone">رقم الهاتف</label>
+          <input type="tel" id="pcPhone" required placeholder="مثال: 01010988730">
+        </div>
+        <div class="modal-foot">
+          <button type="button" class="btn btn-ghost" id="profileCompleteLogoutBtn">تسجيل الخروج</button>
+          <button type="submit" class="btn btn-primary">حفظ ومتابعة</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+
 
 <!-- ============ LEARNING MODAL (مدير فقط) ============ -->
 <div class="modal-overlay hidden" id="learningModalOverlay">
@@ -739,8 +782,20 @@ async function fetchAppUser(){
   return data;
 }
 
+/* الدخول يقدر يتم بالإيميل أو باليوزر نيم — لو النص المدخل مفيهوش @ بنعتبره
+   يوزر نيم ونجيب الإيميل المرتبط بيه أولًا عن طريق get_email_by_username
+   (دالة على قاعدة البيانات بترجع الإيميل بس، من غير أي بيانات تانية) */
+async function resolveLoginEmail(identifier){
+  const raw = String(identifier || '').trim();
+  if(raw.includes('@')) return raw.toLowerCase();
+  const { data, error } = await sb.rpc('get_email_by_username', { p_username: raw });
+  if(error || !data) return null; // مش موجود — هنسيب signInWithPassword يفشل برسالة موحّدة
+  return data;
+}
 async function authLogin({ email, password }){
-  const { error: signInErr } = await sb.auth.signInWithPassword({ email, password });
+  const resolvedEmail = await resolveLoginEmail(email);
+  if(!resolvedEmail) throw new Error('بيانات الدخول غير صحيحة');
+  const { error: signInErr } = await sb.auth.signInWithPassword({ email: resolvedEmail, password });
   if(signInErr) throw new Error('بيانات الدخول غير صحيحة');
   const appUser = await fetchAppUser();
   if(!appUser){ await sb.auth.signOut(); throw new Error('الحساب غير موجود في النظام'); }
@@ -749,11 +804,16 @@ async function authLogin({ email, password }){
   return { token: 'session', user: appUser };
 }
 
-async function authRegister({ name, email, password }){
-  const { error } = await sb.auth.signUp({ email, password, options: { data: { name } } });
+async function authRegister({ name, email, username, phone, password }){
+  const { error } = await sb.auth.signUp({
+    email, password,
+    options: { data: { name, username, phone } }
+  });
   if(error){
     const msg = String(error.message || '').toLowerCase();
     if(msg.includes('already') || msg.includes('registered')) throw new Error('هذا البريد الإلكتروني مسجّل بالفعل');
+    if(msg.includes('username') || msg.includes('idx_users_username')) throw new Error('اسم المستخدم ده مستخدم بالفعل، جرّب اسم تاني');
+    if(msg.includes('chk_username_format')) throw new Error('اسم المستخدم لازم يكون حروف إنجليزية/أرقام فقط (3 لـ30 حرف)، من غير @ أو مسافات');
     throw new Error('تعذّر إنشاء الحساب، حاول مرة أخرى');
   }
   await sb.auth.signOut(); // الحساب Pending لحد موافقة المدير
@@ -1413,6 +1473,12 @@ function dailyBreakdownForUser(userId, monthDate){
   const rows = [];
   for(let d = new Date(Math.max(monthStart, created)); d <= lastDay; d.setDate(d.getDate()+1)){
     const dStr = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    // يوم الجمعة: إجازة كاملة (زي recalc_negligence على السيرفر — v16) — مفيش
+    // احتساب عليه خالص، حتى لو فيه تقرير فعلي مسجّل بتاريخه
+    if(isFridayDate(dStr)){
+      rows.push({ date: dStr, status: 'holiday', time: null });
+      continue;
+    }
     if(postponeUntil && dStr <= postponeUntil){
       rows.push({ date: dStr, status: 'postponed', time: null });
       continue;
@@ -1442,18 +1508,29 @@ function monthlyNegligentDays(userId, monthDate){
    السيرفر set_report_date_for_grace_window بالظبط، عشان نعرضه للعضو قبل الحفظ.
    لو اتسجل تقرير تاني فورًا بعد الأول، الأول بياخد اليوم الأقدم (أمس لو متاح)
    والتاني بياخد اللي بعده (النهارده)، لأن أمس بقى بقى عنده تقرير فمش هيتكرر. */
+/* يوم الجمعة إجازة كاملة من نظام التقصير (زي ما هو مطبّق فعليًا في recalc_negligence
+   على قاعدة البيانات — شوف supabase_migration_v16.sql): مفيش تقرير مطلوب فيه، ولو
+   حد سجّل فعلًا وهو منسوب ليوم الجمعة نفسه (مش لخميس سابق لسه ما اتسجلش) فمفيش أي
+   احتساب عليه (لا تأخير ولا على الوقت ولا تقصير) — بنعلّمه هنا بعلامة holiday:true
+   عشان الواجهة تعرضه صح بدل ما توهم العضو إنه بيتحسب "على الوقت" فعليًا. */
+function isFridayDate(dateStr){
+  if(!dateStr) return false;
+  const [y,m,d] = dateStr.split('-').map(Number);
+  return new Date(y, m-1, d).getDay() === 5;
+}
 function predictedReportTarget(userId){
   const user = findUser(userId);
-  if(!user) return { date: todayStr(), late: false };
+  if(!user) return { date: todayStr(), late: false, holiday: isFridayDate(todayStr()) };
   const now = new Date();
   const cutoffPassed = now.getHours() >= GRACE_CUTOFF_HOUR;
   const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
   const yStr = yesterday.getFullYear()+'-'+String(yesterday.getMonth()+1).padStart(2,'0')+'-'+String(yesterday.getDate()).padStart(2,'0');
   const hasYesterdayReport = state.reports.some(r => r.userId === userId && r.date === yStr);
   if(!cutoffPassed && yStr >= user.createdAt && !hasYesterdayReport){
-    return { date: yStr, late: now.getHours() >= GRACE_LATE_START_HOUR };
+    return { date: yStr, late: now.getHours() >= GRACE_LATE_START_HOUR, holiday: isFridayDate(yStr) };
   }
-  return { date: todayStr(), late: false };
+  const t = todayStr();
+  return { date: t, late: false, holiday: isFridayDate(t) };
 }
 function initials(name){
   if(!name) return '?';
@@ -1612,10 +1689,14 @@ $('#registerForm').addEventListener('submit', async (e) => {
   const form = e.target;
   const name = $('#regName').value.trim();
   const email = $('#regEmail').value.trim().toLowerCase();
+  const username = $('#regUsername').value.trim().toLowerCase();
+  const phone = $('#regPhone').value.trim();
   const pass = $('#regPassword').value;
   const pass2 = $('#regPassword2').value;
 
   if(name.length < 3){ showFormMsg('#registerMsg','يرجى كتابة الاسم الكامل.', 'err'); return; }
+  if(!/^[A-Za-z0-9_.]{3,30}$/.test(username)){ showFormMsg('#registerMsg','اسم المستخدم لازم يكون حروف إنجليزية/أرقام فقط (من غير @ أو مسافات)، من 3 لـ30 حرف.', 'err'); return; }
+  if(!phone){ showFormMsg('#registerMsg','يرجى كتابة رقم الهاتف.', 'err'); return; }
   if(pass.length < 6){ showFormMsg('#registerMsg','كلمة المرور يجب ألا تقل عن 6 أحرف.', 'err'); return; }
   if(pass !== pass2){ showFormMsg('#registerMsg','كلمتا المرور غير متطابقتين.', 'err'); return; }
 
@@ -1623,7 +1704,7 @@ $('#registerForm').addEventListener('submit', async (e) => {
   try {
     await apiFetch('/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ name, email, password: pass })
+      body: JSON.stringify({ name, email, username, phone, password: pass })
     });
     form.reset();
     showFormMsg('#registerMsg', 'تم إرسال طلبك بنجاح! سيتم إشعارك بعد موافقة المدير.', 'ok');
@@ -1682,6 +1763,11 @@ const NAV_ITEMS = [
 ];
 
 async function enterApp(showWelcome){
+  if(needsProfileCompletion(state.currentUser)){
+    showProfileCompletionModal();
+    return;
+  }
+  $('#profileCompleteOverlay').classList.add('hidden');
   $('#authScreen').classList.add('hidden');
   $('#appScreen').classList.remove('hidden');
   state.activePage = resolveActivePage();
@@ -1705,6 +1791,58 @@ async function enterApp(showWelcome){
     toast(`أهلًا بك، ${state.currentUser.name.split(' ')[0]} 👋`, 'ok');
   }
 }
+
+/* حساب أنشأه المدير مباشرة (إيميل + اسم + كلمة سر بس) هيكون username/phone
+   فاضيين — لازم يكملهم قبل ما يشوف أي حاجة تانية في النظام */
+function needsProfileCompletion(u){
+  return !!u && (!u.username || !u.phone);
+}
+function showProfileCompletionModal(){
+  $('#authScreen').classList.add('hidden');
+  $('#appScreen').classList.add('hidden');
+  $('#profileCompleteMsg').innerHTML = '';
+  $('#pcUsername').value = '';
+  $('#pcPhone').value = '';
+  $('#profileCompleteOverlay').classList.remove('hidden');
+}
+$('#profileCompleteLogoutBtn').addEventListener('click', async () => {
+  $('#profileCompleteOverlay').classList.add('hidden');
+  await logout();
+});
+$('#profileCompleteForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const username = $('#pcUsername').value.trim().toLowerCase();
+  const phone = $('#pcPhone').value.trim();
+  if(!/^[A-Za-z0-9_.]{3,30}$/.test(username)){
+    showFormMsg('#profileCompleteMsg','اسم المستخدم لازم يكون حروف إنجليزية/أرقام فقط (من غير @ أو مسافات)، من 3 لـ30 حرف.', 'err');
+    return;
+  }
+  if(!phone){
+    showFormMsg('#profileCompleteMsg','يرجى كتابة رقم الهاتف.', 'err');
+    return;
+  }
+  setFormBusy(form, true);
+  try {
+    const { data: { session } } = await sb.auth.getSession();
+    if(!session) throw new Error('غير مسجل الدخول');
+    const { data, error } = await sb.from('users')
+      .update({ username, phone })
+      .eq('authId', session.user.id).select().single();
+    if(error){
+      const msg = String(error.message || '').toLowerCase();
+      if(msg.includes('username') || msg.includes('idx_users_username')) throw new Error('اسم المستخدم ده مستخدم بالفعل، جرّب اسم تاني');
+      throw new Error('تعذّر حفظ البيانات، حاول مرة أخرى');
+    }
+    state.currentUser = data;
+    form.reset();
+    await enterApp();
+  } catch (err) {
+    showFormMsg('#profileCompleteMsg', err.message, 'err');
+  } finally {
+    setFormBusy(form, false);
+  }
+});
 
 /* حفظ آخر صفحة مفتوحة محليًا، عشان لو حصل تحديث (Refresh) للصفحة نرجع لنفس الصفحة
    المطلوبة بدل ما نرجع دايمًا لصفحة "المهام" */
@@ -1914,9 +2052,11 @@ function myReportSubmissionSection(){
   return `
     <div class="card" style="padding:22px; margin-bottom:26px;">
       <h3 class="section-title">${ICONS.bulb} تقرير جديد</h3>
-      <div class="badge ${predicted.late ? 'badge-amber' : 'badge-green'}" style="display:inline-flex; gap:6px; padding:10px 14px; font-size:13px; margin-bottom:14px;">
-        ${predicted.late ? '⏰' : '📅'} هذا التقرير هيتسجل عن يوم: <b>${formatDateWithDay(predicted.date)}</b>
-        ${predicted.late ? ' — متأخر (آخر موعد لتسجيله الساعة 4 عصرًا النهارده)' : ' — على الوقت (في حدود سماحية اليوم التالي لحد الساعة 1 ظهرًا)'}
+      <div class="badge ${predicted.holiday ? 'badge-grey' : (predicted.late ? 'badge-amber' : 'badge-green')}" style="display:inline-flex; gap:6px; padding:10px 14px; font-size:13px; margin-bottom:14px;">
+        ${predicted.holiday ? '🌴' : (predicted.late ? '⏰' : '📅')} هذا التقرير هيتسجل عن يوم: <b>${formatDateWithDay(predicted.date)}</b>
+        ${predicted.holiday
+          ? ' — يوم إجازة، مفيش تقرير مطلوب فيه، وتسجيلك (لو حبيت) مش هياخد ولا يفقّد أي نقطة'
+          : (predicted.late ? ' — متأخر (آخر موعد لتسجيله الساعة 4 عصرًا النهارده)' : ' — على الوقت (في حدود سماحية اليوم التالي لحد الساعة 1 ظهرًا)')}
       </div>
       <form id="reportForm">
         <div class="form-row">
@@ -2134,6 +2274,7 @@ function reportsAdminView(){
         كل يوم موعده النهائي هو الساعة 4 عصرًا من اليوم التالي له. لو العضو سجّل خلال اليوم نفسه فهو "على الوقت".
         لو سجّل بعد ما اليوم يخلص لكن قبل الساعة 4 عصرًا اليوم التالي (سواء قبل الساعة 1 ظهرًا أو بعدها)، يُحتسب "تأخير" — وكل تأخيرتين يتحولوا ليوم تقصير واحد.
         لو محدش سجّل خالص لغاية الساعة 4 عصرًا اليوم التالي، يُحتسب اليوم "تقصير" كامل مباشرة.
+        يوم الجمعة إجازة كاملة: مفيش تقرير مطلوب فيه، ومحدش بياخد أو يفقّد أي نقطة بسببه (سواء سجّل أو مسجّلش).
         عند الوصول لـ 6 أيام تقصير في الشهر يتم إيقاف الحساب (عضو أو مدير عادي) تلقائيًا — السوبر أدمن بس مستثنى دايمًا، وأي حساب استثناه السوبر أدمن يدويًا. رجوع العضو الموقوف بيد أي مدير مسؤول من صفحة "الأعضاء"، أما المدير العادي الموقوف فرجوعه مقصور على السوبر أدمن بس.
         اختر أي شهر سابق من القائمة فوق عشان تراجع انتظام أي عضو خلال الشهور اللي فاتت، واضغط "التفاصيل" جنب أي عضو عشان تشوف حالة كل يوم بالظبط ووقت التسجيل.
       </p>
@@ -2168,6 +2309,7 @@ function reportsAdminView(){
                               d.status==='ontime' ? '<span class="badge badge-green">✔️ على الوقت</span>'
                               : d.status==='late' ? '<span class="badge badge-amber">⏰ تأخير</span>'
                               : d.status==='postponed' ? '<span class="badge badge-green">⏸️ مؤجّل بعذر مقبول</span>'
+                              : d.status==='holiday' ? '<span class="badge badge-grey">🌴 إجازة (الجمعة)</span>'
                               : '<span class="badge badge-red">🚫 تقصير (لم يسجل)</span>'
                             }</td>
                             <td>${d.time ? formatDateTime(d.time) : '—'}</td>
