@@ -462,7 +462,7 @@
   </div>
 </div>
 
-<!-- ============ FORGOT PASSWORD MODAL (عبر Firebase Phone Auth المجاني) ============ -->
+<!-- ============ FORGOT PASSWORD MODAL (لينك إعادة تعيين بالإيميل — مجاني بالكامل عبر Supabase) ============ -->
 <div class="modal-overlay hidden" id="forgotPwdModalOverlay">
   <div class="modal">
     <div class="modal-head">
@@ -471,50 +471,54 @@
     </div>
     <div class="modal-body">
       <div id="forgotPwdMsg"></div>
-
-      <form id="forgotPwdPhoneForm">
+      <form id="forgotPwdForm">
         <p style="font-size:13px; color:var(--text-600); margin-top:0;">
-          اكتب رقم الهاتف المسجّل في حسابك، وهيوصلك كود تحقق برسالة SMS حقيقية خلال ثواني.
+          اكتب البريد الإلكتروني المسجّل في حسابك، وهيوصلك لينك لتعيين كلمة مرور جديدة.
         </p>
         <div class="form-row">
-          <label for="fpPhone">رقم الهاتف</label>
-          <input type="tel" id="fpPhone" required placeholder="مثال: 01010988730" inputmode="numeric" pattern="[0-9]{11}" maxlength="11" title="رقم الهاتف لازم يكون 11 رقم بالظبط">
+          <label for="fpEmail">البريد الإلكتروني</label>
+          <input type="email" id="fpEmail" required placeholder="name@company.com" autocomplete="email">
         </div>
         <div class="modal-foot">
           <button type="button" class="btn btn-ghost" id="forgotPwdCancelBtn">إلغاء</button>
-          <button type="submit" class="btn btn-primary">إرسال الكود</button>
+          <button type="submit" class="btn btn-primary">إرسال لينك إعادة التعيين</button>
         </div>
       </form>
+    </div>
+  </div>
+</div>
 
-      <form id="forgotPwdResetForm" class="hidden">
-        <p style="font-size:13px; color:var(--text-600); margin-top:0;">
-          وصلك كود مكوّن من 6 أرقام على الرقم <b id="fpPhoneShown"></b> — اكتبه هنا مع كلمة المرور الجديدة.
-        </p>
+<!-- ============ RECOVERY: تعيين كلمة مرور جديدة (تظهر تلقائيًا بعد الضغط على لينك الإيميل) ============ -->
+<div class="modal-overlay hidden" id="recoverySetPwdOverlay">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>تعيين كلمة مرور جديدة</h3>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px; color:var(--text-600); margin-top:0;">
+        تم التحقق من طلبك بنجاح عن طريق اللينك اللي وصلك بالإيميل. اكتب كلمة المرور الجديدة لحسابك.
+      </p>
+      <div id="recoverySetPwdMsg"></div>
+      <form id="recoverySetPwdForm">
         <div class="form-row">
-          <label for="fpCode">كود التحقق</label>
-          <input type="text" id="fpCode" required inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="------">
-        </div>
-        <div class="form-row">
-          <label for="fpNewPass">كلمة المرور الجديدة</label>
+          <label for="recNewPass">كلمة المرور الجديدة</label>
           <div class="pwd-field">
-            <input type="password" id="fpNewPass" required>
-            <button type="button" class="pwd-toggle" data-target="fpNewPass" aria-label="إظهار كلمة المرور"></button>
+            <input type="password" id="recNewPass" required>
+            <button type="button" class="pwd-toggle" data-target="recNewPass" aria-label="إظهار كلمة المرور"></button>
           </div>
         </div>
         <div class="form-row">
-          <label for="fpNewPass2">تأكيد كلمة المرور</label>
+          <label for="recNewPass2">تأكيد كلمة المرور</label>
           <div class="pwd-field">
-            <input type="password" id="fpNewPass2" required>
-            <button type="button" class="pwd-toggle" data-target="fpNewPass2" aria-label="إظهار كلمة المرور"></button>
+            <input type="password" id="recNewPass2" required>
+            <button type="button" class="pwd-toggle" data-target="recNewPass2" aria-label="إظهار كلمة المرور"></button>
           </div>
         </div>
         <div class="modal-foot">
-          <button type="button" class="btn btn-ghost" id="forgotPwdBackBtn">رجوع</button>
-          <button type="submit" class="btn btn-primary">تأكيد وتغيير كلمة المرور</button>
+          <button type="button" class="btn btn-ghost" id="recoverySetPwdLogoutBtn">إلغاء وتسجيل الخروج</button>
+          <button type="submit" class="btn btn-primary">حفظ كلمة المرور</button>
         </div>
       </form>
-
-      <div id="fpRecaptchaContainer"></div>
     </div>
   </div>
 </div>
@@ -787,8 +791,6 @@
 
 <script type="module">
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js';
-import { getAuth, RecaptchaVerifier, signInWithPhoneNumber } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
 
 (function(){
 "use strict";
@@ -830,64 +832,21 @@ const SUPABASE_ANON_KEY = 'sb_publishable_Bzr6eoNTg_P_LuFXB3BGJw_XcGlM9hc';
 
 const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-/* ============================================================
-   Firebase Phone Auth — مستخدم بس عشان "نسيت كلمة المرور" (إرسال كود
-   SMS حقيقي مجانًا والتحقق منه) — منفصل تمامًا عن نظام الدخول بتاع
-   Supabase، ومفيش أي علاقة بينه وبين حسابات المستخدمين نفسها
-   ============================================================ */
-const FIREBASE_CONFIG = {
-  apiKey: "AIzaSyAo_SUHQfCL7CzjDnkuPZytWEfAB-H8Xvs",
-  authDomain: "itqan-32ab2.firebaseapp.com",
-  projectId: "itqan-32ab2",
-  storageBucket: "itqan-32ab2.firebasestorage.app",
-  messagingSenderId: "337721715447",
-  appId: "1:337721715447:web:50bd34a72e9d3459d1c1f2"
-};
-const fbApp = initializeApp(FIREBASE_CONFIG);
-const fbAuth = getAuth(fbApp);
-let fpRecaptcha = null;
-let fpConfirmation = null;
-
-/* رقم محلي (01xxxxxxxxx، 11 رقم) → صيغة دولية مصرية (+20xxxxxxxxxx) */
-function toE164Egypt(localPhone){
-  return '+20' + localPhone.replace(/^0/, '');
-}
-
-function getFpRecaptcha(){
-  if(!fpRecaptcha){
-    fpRecaptcha = new RecaptchaVerifier(fbAuth, 'fpRecaptchaContainer', { size: 'invisible' });
+/* "نسيت كلمة المرور" — لينك إعادة تعيين بالإيميل (مدمج في Supabase، مجاني
+   بالكامل، مفيش أي خدمة خارجية أو بطاقة بنكية مطلوبة). لما العضو يدوس
+   على اللينك اللي بيوصله بالإيميل، Supabase بيرجّعه لنفس الصفحة دي
+   ومعاه جلسة مؤقتة خاصة بإعادة التعيين بس — الحدث ده بيوصلنا هنا: */
+sb.auth.onAuthStateChange((event) => {
+  if(event === 'PASSWORD_RECOVERY'){
+    $('#authScreen').classList.add('hidden');
+    $('#appScreen').classList.add('hidden');
+    $('#profileCompleteOverlay').classList.add('hidden');
+    $('#sessionCheckOverlay').classList.add('hidden');
+    $('#recoverySetPwdMsg').innerHTML = '';
+    $('#recoverySetPwdForm').reset();
+    $('#recoverySetPwdOverlay').classList.remove('hidden');
   }
-  return fpRecaptcha;
-}
-
-/* يبعت كود SMS حقيقي لرقم الهاتف عن طريق Firebase (مجاني) */
-async function fpSendCode(phone){
-  const verifier = getFpRecaptcha();
-  fpConfirmation = await signInWithPhoneNumber(fbAuth, toE164Egypt(phone), verifier);
-}
-
-/* يتأكد من الكود، ولو صح يبعت توكن Firebase (إثبات ملكية الرقم) لسيرفر
-   Supabase (Edge Function: phone-password-reset) عشان يغيّر كلمة السر فعليًا */
-async function fpVerifyCodeAndReset(code, newPassword){
-  if(!fpConfirmation) throw new Error('يرجى طلب الكود أولًا');
-  const cred = await fpConfirmation.confirm(code);
-  const idToken = await cred.user.getIdToken();
-  let res;
-  try {
-    res = await fetch(`${SUPABASE_URL}/functions/v1/phone-password-reset`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ idToken, newPassword })
-    });
-  } catch (err) {
-    await fbAuth.signOut().catch(() => {});
-    throw new Error('تعذّر الاتصال بخدمة إعادة تعيين كلمة المرور');
-  }
-  const data = await res.json().catch(() => ({}));
-  await fbAuth.signOut().catch(() => {});
-  if(!res.ok) throw new Error(data.error || 'تعذّر إعادة تعيين كلمة المرور');
-  return data;
-}
+});
 
 function getToken(){ return localStorage.getItem('teamflow_session_flag'); }
 function setToken(token){
@@ -1837,73 +1796,69 @@ $('#registerForm').addEventListener('submit', async (e) => {
 });
 
 /* ============================================================
-   نسيت كلمة المرور
+   نسيت كلمة المرور — لينك إعادة تعيين بالإيميل
    ============================================================ */
 function openForgotPwdModal(){
-  $('#forgotPwdPhoneForm').reset();
-  $('#forgotPwdResetForm').reset();
-  $('#forgotPwdPhoneForm').classList.remove('hidden');
-  $('#forgotPwdResetForm').classList.add('hidden');
+  $('#forgotPwdForm').reset();
   $('#forgotPwdMsg').innerHTML = '';
-  fpConfirmation = null;
   $('#forgotPwdModalOverlay').classList.remove('hidden');
 }
 function closeForgotPwdModal(){
   $('#forgotPwdModalOverlay').classList.add('hidden');
-  fpConfirmation = null;
-  if(fpRecaptcha){ fpRecaptcha.clear(); fpRecaptcha = null; }
 }
 $('#forgotPwdLink').addEventListener('click', openForgotPwdModal);
 $('#forgotPwdModalClose').addEventListener('click', closeForgotPwdModal);
 $('#forgotPwdCancelBtn').addEventListener('click', closeForgotPwdModal);
 $('#forgotPwdModalOverlay').addEventListener('click', (e) => { if(e.target.id === 'forgotPwdModalOverlay') closeForgotPwdModal(); });
 
-$('#forgotPwdPhoneForm').addEventListener('submit', async (e) => {
+$('#forgotPwdForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const form = e.target;
-  const phone = $('#fpPhone').value.trim();
-  if(!/^[0-9]{11}$/.test(phone)){ showFormMsg('#forgotPwdMsg', 'رقم الهاتف لازم يكون 11 رقم بالظبط.', 'err'); return; }
+  const email = $('#fpEmail').value.trim().toLowerCase();
   setFormBusy(form, true);
   try {
-    await fpSendCode(phone);
-    $('#fpPhoneShown').textContent = phone;
-    form.classList.add('hidden');
-    $('#forgotPwdResetForm').classList.remove('hidden');
-    $('#forgotPwdMsg').innerHTML = '';
+    const { error } = await sb.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin + window.location.pathname
+    });
+    if(error) throw error;
+    showFormMsg('#forgotPwdMsg', 'لو الإيميل ده مسجّل عندنا، هيوصلك لينك إعادة تعيين كلمة المرور خلال دقائق. راجع صندوق الوارد (وكمان مجلد الرسائل غير المرغوبة/Spam).', 'ok');
+    form.reset();
   } catch (err) {
-    showFormMsg('#forgotPwdMsg', 'تعذّر إرسال الكود، تأكد من الرقم وحاول مرة أخرى.', 'err');
-    if(fpRecaptcha){ fpRecaptcha.clear(); fpRecaptcha = null; }
+    showFormMsg('#forgotPwdMsg', 'تعذّر إرسال اللينك، حاول مرة أخرى.', 'err');
   } finally {
     setFormBusy(form, false);
   }
 });
 
-$('#forgotPwdBackBtn').addEventListener('click', () => {
-  $('#forgotPwdResetForm').classList.add('hidden');
-  $('#forgotPwdPhoneForm').classList.remove('hidden');
-  fpConfirmation = null;
-});
-
-$('#forgotPwdResetForm').addEventListener('submit', async (e) => {
+/* هذا الفورم بيظهر تلقائيًا (عبر onAuthStateChange فوق) لما العضو يدوس على
+   لينك إعادة التعيين اللي وصله بالإيميل — مش من غير ما يمر بيها */
+$('#recoverySetPwdForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const form = e.target;
-  const code = $('#fpCode').value.trim();
-  const p1 = $('#fpNewPass').value;
-  const p2 = $('#fpNewPass2').value;
-  if(!/^[0-9]{6}$/.test(code)){ showFormMsg('#forgotPwdMsg', 'كود التحقق لازم يكون 6 أرقام.', 'err'); return; }
-  if(!p1){ showFormMsg('#forgotPwdMsg', 'يرجى كتابة كلمة المرور الجديدة.', 'err'); return; }
-  if(p1 !== p2){ showFormMsg('#forgotPwdMsg', 'كلمتا المرور غير متطابقتين.', 'err'); return; }
+  const p1 = $('#recNewPass').value;
+  const p2 = $('#recNewPass2').value;
+  if(!p1){ showFormMsg('#recoverySetPwdMsg', 'يرجى كتابة كلمة المرور الجديدة.', 'err'); return; }
+  if(p1 !== p2){ showFormMsg('#recoverySetPwdMsg', 'كلمتا المرور غير متطابقتين.', 'err'); return; }
   setFormBusy(form, true);
   try {
-    await fpVerifyCodeAndReset(code, p1);
-    closeForgotPwdModal();
+    const { error } = await sb.auth.updateUser({ password: p1 });
+    if(error) throw new Error('تعذّر تغيير كلمة المرور، يمكن اللينك انتهت صلاحيته — اطلب لينك جديد.');
+    await sb.auth.signOut();
+    $('#recoverySetPwdOverlay').classList.add('hidden');
+    $('#authScreen').classList.remove('hidden');
     switchAuthTab('login');
     toast('تم تغيير كلمة المرور بنجاح، سجّل الدخول بكلمة المرور الجديدة', 'ok');
   } catch (err) {
-    showFormMsg('#forgotPwdMsg', err.message === 'يرجى طلب الكود أولًا' ? err.message : 'الكود غير صحيح أو حصل خطأ، تأكد وحاول تاني.', 'err');
+    showFormMsg('#recoverySetPwdMsg', err.message, 'err');
   } finally {
     setFormBusy(form, false);
   }
+});
+$('#recoverySetPwdLogoutBtn').addEventListener('click', async () => {
+  await sb.auth.signOut();
+  $('#recoverySetPwdOverlay').classList.add('hidden');
+  $('#authScreen').classList.remove('hidden');
+  switchAuthTab('login');
 });
 
 async function logout(){
