@@ -82,8 +82,8 @@ Deno.serve(async (req) => {
   const body = await req.json().catch(() => ({}));
   const userId = body.userId;
   const newPassword = String(body.newPassword || "");
-  if (!userId || newPassword.length < 6) {
-    return json({ error: "بيانات غير صحيحة (كلمة المرور لازم تكون 6 أحرف على الأقل)" }, 400);
+  if (!userId || newPassword.length < 1) {
+    return json({ error: "بيانات غير صحيحة (يرجى إدخال كلمة مرور)" }, 400);
   }
 
   // 4) هات authId بتاع العضو المستهدف
