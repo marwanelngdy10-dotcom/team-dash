@@ -4,6 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>IT_qan — منصة إدارة الفريق</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0B1226">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="IT_qan">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="data:image/png;base64,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">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -840,6 +847,83 @@ const SUPABASE_URL = 'https://pkpeglpoyeeiaobfoqnv.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_Bzr6eoNTg_P_LuFXB3BGJw_XcGlM9hc';
 
 const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+/* ============================================================
+   PWA — تثبيت الموقع كتطبيق + إشعارات Push حقيقية (حتى لو الموقع مقفول)
+   ============================================================ */
+const VAPID_PUBLIC_KEY = 'BJnET486fibBjhXA4Vm9hea7QrldJ0P-gr6OOTs51o5p-ZgCWNEexiaNixP7zrFE7ybZ9pzh2is3cpDzH51g0c4';
+
+function urlBase64ToUint8Array(base64String){
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
+}
+
+let swRegistration = null;
+
+async function registerServiceWorker(){
+  if(!('serviceWorker' in navigator)) return null;
+  try {
+    swRegistration = await navigator.serviceWorker.register('service-worker.js');
+    return swRegistration;
+  } catch (err) {
+    console.warn('تعذّر تسجيل service worker:', err);
+    return null;
+  }
+}
+
+/* يُستدعى بعد تسجيل الدخول بنجاح: يطلب إذن الإشعارات ويسجّل الاشتراك
+   في جدول push_subscriptions (لكل جهاز/متصفح اشتراك مستقل، مربوط بالعضو) */
+async function initPushSubscription(){
+  if(!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  if(!state.currentUser) return;
+  try {
+    const reg = swRegistration || await registerServiceWorker();
+    if(!reg) return;
+
+    if(Notification.permission === 'denied') return;
+    if(Notification.permission === 'default'){
+      const perm = await Notification.requestPermission();
+      if(perm !== 'granted') return;
+    }
+
+    let sub = await reg.pushManager.getSubscription();
+    if(!sub){
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+      });
+    }
+
+    const json = sub.toJSON();
+    await sb.from('push_subscriptions').upsert({
+      userId: state.currentUser.id,
+      endpoint: json.endpoint,
+      p256dh: json.keys.p256dh,
+      auth: json.keys.auth,
+      userAgent: navigator.userAgent
+    }, { onConflict: 'endpoint' });
+  } catch (err) {
+    console.warn('تعذّر تفعيل إشعارات Push:', err);
+  }
+}
+
+/* يُستدعى عند تسجيل الخروج: يشيل اشتراك الجهاز ده من قاعدة البيانات
+   عشان ميوصلش إشعارات لصاحب حساب راح سجّل خروج على نفس الجهاز */
+async function removePushSubscription(){
+  try {
+    if(!swRegistration) return;
+    const sub = await swRegistration.pushManager.getSubscription();
+    if(!sub) return;
+    const endpoint = sub.toJSON().endpoint;
+    await sb.from('push_subscriptions').delete().eq('endpoint', endpoint);
+  } catch (err) { /* فشل هادئ */ }
+}
+
+registerServiceWorker();
 
 /* "نسيت كلمة المرور" — لينك إعادة تعيين بالإيميل (مدمج في Supabase، مجاني
    بالكامل، مفيش أي خدمة خارجية أو بطاقة بنكية مطلوبة). لما العضو يدوس
@@ -1880,6 +1964,7 @@ async function logout(){
   stopChatPolling();
   stopPresence();
   stopNotifications();
+  await removePushSubscription();
   await sb.auth.signOut();
   setToken(null);
   state.currentUser = null;
@@ -1944,6 +2029,7 @@ async function enterApp(showWelcome){
   }
   startPresence();
   initNotifications();
+  initPushSubscription();
   if(state.activePage === 'chat') markChatNotificationsRead();
   renderSidebar();
   renderTopbar();
