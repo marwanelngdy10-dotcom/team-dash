@@ -1205,6 +1205,19 @@ async function usersUpdateNegligenceExempt(id, exempt){
   if(error) throw new Error(error.message || 'تعذّر تحديث حالة الاستثناء');
   return { message: exempt ? `تم استثناء ${data.name} من احتساب التقصير` : `تم إلغاء استثناء ${data.name} من احتساب التقصير`, user: data };
 }
+/* تعديل يدوي تراكمي لأيام التقصير (0 إلى 6) — مقصور على السوبر أدمن على
+   مستوى قاعدة البيانات (increase_negligence/decrease_negligence من v26).
+   بترجع العدّ الجديد فورًا من السيرفر عشان الواجهة تحدّثه على طول */
+async function negligenceIncrease(userId){
+  const { data, error } = await sb.rpc('increase_negligence', { p_user_id: userId });
+  if(error) throw new Error(error.message || 'تعذّر زيادة يوم التقصير');
+  return { message: 'تم إضافة يوم تقصير', negligentDays: data };
+}
+async function negligenceDecrease(userId){
+  const { data, error } = await sb.rpc('decrease_negligence', { p_user_id: userId });
+  if(error) throw new Error(error.message || 'تعذّر إنقاص يوم التقصير');
+  return { message: 'تم إنقاص يوم تقصير', negligentDays: data };
+}
 
 /* أيام التقصير الملغاة يدويًا — قراءة (السوبر أدمن/المدير يشوف الكل، والعضو
    يشوف أيامه هو بس، حسب RLS)، تُحمَّل مع باقي البيانات في refreshData */
@@ -1373,14 +1386,17 @@ async function coursesList(){
 }
 async function courseCreate(p){
   const { data, error } = await sb.from('courses').insert({
-    title: (p.title || '').trim(), url: (p.url || '').trim(), createdBy: state.currentUser ? state.currentUser.id : null
+    title: (p.title || '').trim(), url: (p.url || '').trim(),
+    categoryId: p.categoryId || null, branch: (p.branch || '').trim() || null,
+    createdBy: state.currentUser ? state.currentUser.id : null
   }).select().single();
   if(error) throw new Error(error.message && error.message.includes('check') ? 'برجاء إدخال العنوان والرابط' : 'تعذّر إضافة الكورس');
   return { course: data };
 }
 async function courseUpdate(id, p){
   const { data, error } = await sb.from('courses').update({
-    title: (p.title || '').trim(), url: (p.url || '').trim()
+    title: (p.title || '').trim(), url: (p.url || '').trim(),
+    categoryId: p.categoryId || null, branch: (p.branch || '').trim() || null
   }).eq('id', id).select().single();
   if(error) throw new Error(error.message && error.message.includes('check') ? 'برجاء إدخال العنوان والرابط' : 'تعذّر تحديث الكورس');
   return { course: data };
@@ -1389,6 +1405,25 @@ async function courseDelete(id){
   const { error } = await sb.from('courses').delete().eq('id', id);
   if(error) throw new Error(error.message || 'تعذّر حذف الكورس');
   return { message: 'تم حذف الكورس' };
+}
+
+/* أقسام الكورسات — قائمة يختارها المدير، ويقدر يضيف قسم جديد منها
+   على طول من واجهة "الكورسات" (زي "SEO / التسويق الإلكتروني" فرع تحت
+   قسم "التسويق") */
+async function courseCategoriesList(){
+  const { data, error } = await sb.from('course_categories').select('*').order('order', { ascending: true }).order('createdAt', { ascending: true });
+  if(error) throw new Error('تعذّر تحميل أقسام الكورسات');
+  return { categories: data };
+}
+async function courseCategoryCreate(title){
+  const { data, error } = await sb.from('course_categories').insert({ title: (title || '').trim() }).select().single();
+  if(error) throw new Error(error.message && error.message.includes('check') ? 'برجاء إدخال اسم القسم' : 'تعذّر إضافة القسم');
+  return { category: data };
+}
+async function courseCategoryDelete(id){
+  const { error } = await sb.from('course_categories').delete().eq('id', id);
+  if(error) throw new Error(error.message || 'تعذّر حذف القسم');
+  return { message: 'تم حذف القسم' };
 }
 
 /* الإشعارات — تُنشأ تلقائيًا من قاعدة البيانات (إسناد مهمة / إنذارات تقصير) */
@@ -1446,6 +1481,8 @@ async function apiFetch(path, options = {}){
   if((m = path.match(/^\/users\/(\d+)\/toggle-status$/)) && method === 'PUT') return usersToggleStatus(Number(m[1]));
   if((m = path.match(/^\/users\/(\d+)\/role$/)) && method === 'PUT') return usersUpdateRole(Number(m[1]), body.role);
   if((m = path.match(/^\/users\/(\d+)\/negligence-exempt$/)) && method === 'PUT') return usersUpdateNegligenceExempt(Number(m[1]), !!body.exempt);
+  if((m = path.match(/^\/users\/(\d+)\/negligence-increase$/)) && method === 'PUT') return negligenceIncrease(Number(m[1]));
+  if((m = path.match(/^\/users\/(\d+)\/negligence-decrease$/)) && method === 'PUT') return negligenceDecrease(Number(m[1]));
   if(path === '/negligence-forgiven-days' && method === 'GET') return negligenceForgivenDaysList();
   if((m = path.match(/^\/negligence-forgiven-days\/(\d+)\/(\d{4}-\d{2}-\d{2})$/)) && method === 'POST') return negligenceForgiveDay(Number(m[1]), m[2]);
   if((m = path.match(/^\/negligence-forgiven-days\/(\d+)\/(\d{4}-\d{2}-\d{2})$/)) && method === 'DELETE') return negligenceUnforgiveDay(Number(m[1]), m[2]);
@@ -1474,6 +1511,9 @@ async function apiFetch(path, options = {}){
   if(path === '/courses' && method === 'POST') return courseCreate(body);
   if((m = path.match(/^\/courses\/(\d+)$/)) && method === 'PUT') return courseUpdate(Number(m[1]), body);
   if((m = path.match(/^\/courses\/(\d+)$/)) && method === 'DELETE') return courseDelete(Number(m[1]));
+  if(path === '/course-categories' && method === 'GET') return courseCategoriesList();
+  if(path === '/course-categories' && method === 'POST') return courseCategoryCreate(body.title);
+  if((m = path.match(/^\/course-categories\/(\d+)$/)) && method === 'DELETE') return courseCategoryDelete(Number(m[1]));
 
   if(path === '/notifications' && method === 'GET') return notificationsList();
   if((m = path.match(/^\/notifications\/(\d+)\/read$/)) && method === 'PUT') return notificationsMarkRead(Number(m[1]));
@@ -1497,6 +1537,7 @@ const state = {
   resources: [],
   resourceColumns: [],
   courses: [],
+  courseCategories: [],
   notifications: [],
   negligenceForgivenDays: []
 };
@@ -1514,6 +1555,7 @@ async function refreshData(){
     apiFetch('/resource-columns').then(d => { state.resourceColumns = d.columns || []; }),
     apiFetch('/resources').then(d => { state.resources = d.resources || []; }),
     apiFetch('/courses').then(d => { state.courses = d.courses || []; }),
+    apiFetch('/course-categories').then(d => { state.courseCategories = d.categories || []; }),
     apiFetch('/notifications').then(d => { state.notifications = d.notifications || []; }).catch(() => {}),
     apiFetch('/negligence-forgiven-days').then(d => { state.negligenceForgivenDays = d.days || []; }).catch(() => {})
   ];
@@ -1776,7 +1818,12 @@ function monthlyNegligentDays(userId, monthDate){
   const missedDates = rows.filter(r => r.status === 'missing').map(r => r.date);
   const late = rows.filter(r => r.status === 'late').length;
   const negligentFromLate = Math.floor(late / 2);
-  return { days: missedDates.length + negligentFromLate, missed: missedDates.length, late, list: missedDates };
+  // التعديل اليدوي التراكمي بتاع السوبر أدمن (0-6) — نفس منطق recalc_negligence
+  // على السيرفر (v26): بيتضاف على الناتج الأوتوماتيكي، والمجموع محصور بين 0 و6
+  const user = findUser(userId);
+  const manual = (user && Number(user.negligenceManualAdjustment)) || 0;
+  const days = Math.min(6, Math.max(0, missedDates.length + negligentFromLate + manual));
+  return { days, missed: missedDates.length, late, list: missedDates };
 }
 /* بيتنبأ باليوم اللي هيتنسب له تقرير جديد لو اتحفظ دلوقتي — بنفس منطق تريجر
    السيرفر set_report_date_for_grace_window بالظبط، عشان نعرضه للعضو قبل الحفظ.
@@ -2076,6 +2123,7 @@ async function logout(){
   state.resources = [];
   state.resourceColumns = [];
   state.courses = [];
+  state.courseCategories = [];
   state.notifications = [];
   state.negligenceForgivenDays = [];
   $('#appScreen').classList.add('hidden');
@@ -3249,11 +3297,30 @@ function pageCourses(){
   `;
 }
 
+/* قائمة اختيار "القسم" — من أقسام الكورسات المعرّفة، مع خيار إضافة
+   قسم جديد على طول من غير ما يحتاج المدير يروح مكان تاني */
+function courseCategoryOptionsHtml(selectedId){
+  const opts = state.courseCategories.map(cat =>
+    `<option value="${cat.id}" ${String(cat.id) === String(selectedId) ? 'selected' : ''}>${escapeHtml(cat.title)}</option>`
+  ).join('');
+  return `<option value="">بدون قسم</option>${opts}<option value="__new__">+ إضافة قسم جديد</option>`;
+}
+
+function courseCategoryLabel(categoryId){
+  const cat = state.courseCategories.find(c => String(c.id) === String(categoryId));
+  return cat ? cat.title : '<span style="color:var(--text-400);">—</span>';
+}
+
 function courseRowHtml(c, isAdmin){
   if(isAdmin && courseEditingId === c.id){
     return `<tr class="course-edit-row" data-id="${c.id}">
       <td><input type="text" class="course-input course-edit-title" value="${escapeHtml(c.title)}" placeholder="عنوان الكورس"></td>
       <td><input type="url" class="course-input course-edit-url" value="${escapeHtml(c.url)}" placeholder="رابط الكورس"></td>
+      <td>
+        <select class="course-input course-edit-category">${courseCategoryOptionsHtml(c.categoryId)}</select>
+        <input type="text" class="course-input course-edit-category-new hidden" placeholder="اسم القسم الجديد">
+      </td>
+      <td><input type="text" class="course-input course-edit-branch" value="${escapeHtml(c.branch || '')}" placeholder="الفرع (مثال: SEO)"></td>
       <td>
         <div class="row-actions">
           <button type="button" class="btn btn-primary btn-sm save-course-edit-btn" data-id="${c.id}" title="حفظ">${ICONS.check}</button>
@@ -3265,6 +3332,8 @@ function courseRowHtml(c, isAdmin){
   return `<tr>
     <td>${escapeHtml(c.title)}</td>
     <td><a href="${escapeHtml(c.url)}" target="_blank" rel="noopener">${escapeHtml(c.url)}</a></td>
+    <td>${courseCategoryLabel(c.categoryId)}</td>
+    <td>${c.branch ? escapeHtml(c.branch) : '<span style="color:var(--text-400);">—</span>'}</td>
     ${isAdmin ? `<td>
       <div class="row-actions">
         <button type="button" class="btn btn-ghost btn-sm edit-course-btn" data-id="${c.id}">${ICONS.edit} تعديل</button>
@@ -3277,7 +3346,7 @@ function courseRowHtml(c, isAdmin){
 function courseAddRowHtml(){
   if(!courseAddingRow){
     return `<tr class="course-add-trigger-row">
-      <td colspan="3">
+      <td colspan="5">
         <button type="button" class="btn btn-ghost btn-sm" id="addCourseRowBtn">${ICONS.plus} إضافة كورس</button>
       </td>
     </tr>`;
@@ -3285,6 +3354,11 @@ function courseAddRowHtml(){
   return `<tr class="course-add-row">
     <td><input type="text" class="course-input" id="newCourseTitle" placeholder="عنوان الكورس"></td>
     <td><input type="url" class="course-input" id="newCourseUrl" placeholder="رابط الكورس"></td>
+    <td>
+      <select class="course-input" id="newCourseCategory">${courseCategoryOptionsHtml('')}</select>
+      <input type="text" class="course-input hidden" id="newCourseCategoryNew" placeholder="اسم القسم الجديد">
+    </td>
+    <td><input type="text" class="course-input" id="newCourseBranch" placeholder="الفرع (مثال: SEO)"></td>
     <td>
       <div class="row-actions">
         <button type="button" class="btn btn-primary btn-sm" id="saveNewCourseBtn" title="حفظ">${ICONS.check}</button>
@@ -3304,6 +3378,8 @@ function renderCoursesTableHtml(rows, isAdmin){
         <thead><tr>
           <th>العنوان</th>
           <th>الرابط</th>
+          <th>القسم</th>
+          <th>الفرع</th>
           ${isAdmin ? '<th></th>' : ''}
         </tr></thead>
         <tbody>
@@ -3336,14 +3412,41 @@ function bindCoursesEvents(){
     rerenderCoursesTable();
   });
 
+  /* إظهار/إخفاء حقل "اسم القسم الجديد" لما يختار "+ إضافة قسم جديد" من القائمة */
+  const newCatSelect = $('#newCourseCategory'), newCatInput = $('#newCourseCategoryNew');
+  if(newCatSelect && newCatInput) newCatSelect.addEventListener('change', () => {
+    newCatInput.classList.toggle('hidden', newCatSelect.value !== '__new__');
+    if(newCatSelect.value === '__new__') newCatInput.focus();
+  });
+  $$('.course-edit-category').forEach(sel => {
+    const input = sel.parentElement.querySelector('.course-edit-category-new');
+    if(!input) return;
+    sel.addEventListener('change', () => {
+      input.classList.toggle('hidden', sel.value !== '__new__');
+      if(sel.value === '__new__') input.focus();
+    });
+  });
+
+  /* بترجع categoryId جاهز — لو المدير اختار "+ إضافة قسم جديد" وكتب اسم،
+     بتنشئ القسم الأول وترجّع الـ id بتاعه */
+  async function resolveCourseCategoryId(selectEl, newInputEl){
+    if(!selectEl || selectEl.value !== '__new__') return selectEl ? (selectEl.value || null) : null;
+    const title = (newInputEl && newInputEl.value || '').trim();
+    if(!title) throw new Error('برجاء إدخال اسم القسم الجديد');
+    const { category } = await courseCategoryCreate(title);
+    state.courseCategories.push(category);
+    return category.id;
+  }
+
   const saveNewBtn = $('#saveNewCourseBtn');
   if(saveNewBtn) saveNewBtn.addEventListener('click', async () => {
-    const titleEl = $('#newCourseTitle'), urlEl = $('#newCourseUrl');
+    const titleEl = $('#newCourseTitle'), urlEl = $('#newCourseUrl'), branchEl = $('#newCourseBranch');
     const title = titleEl.value.trim(), url = urlEl.value.trim();
     if(!title || !url){ toast('برجاء إدخال العنوان والرابط', 'err'); return; }
     saveNewBtn.disabled = true;
     try {
-      await apiFetch('/courses', { method: 'POST', body: JSON.stringify({ title, url }) });
+      const categoryId = await resolveCourseCategoryId($('#newCourseCategory'), $('#newCourseCategoryNew'));
+      await apiFetch('/courses', { method: 'POST', body: JSON.stringify({ title, url, categoryId, branch: branchEl.value }) });
       courseAddingRow = true; // سيب سطر الإضافة مفتوح عشان يضيف كورس كورس على طول
       await refreshData();
       renderPage();
@@ -3355,7 +3458,7 @@ function bindCoursesEvents(){
     }
   });
 
-  [$('#newCourseTitle'), $('#newCourseUrl')].forEach(el => {
+  [$('#newCourseTitle'), $('#newCourseUrl'), $('#newCourseBranch')].forEach(el => {
     if(!el) return;
     el.addEventListener('keydown', (e) => {
       if(e.key === 'Enter'){ e.preventDefault(); const b = $('#saveNewCourseBtn'); if(b) b.click(); }
@@ -3377,10 +3480,12 @@ function bindCoursesEvents(){
     const row = btn.closest('tr');
     const title = row.querySelector('.course-edit-title').value.trim();
     const url = row.querySelector('.course-edit-url').value.trim();
+    const branch = row.querySelector('.course-edit-branch').value;
     if(!title || !url){ toast('برجاء إدخال العنوان والرابط', 'err'); return; }
     btn.disabled = true;
     try {
-      await apiFetch(`/courses/${id}`, { method: 'PUT', body: JSON.stringify({ title, url }) });
+      const categoryId = await resolveCourseCategoryId(row.querySelector('.course-edit-category'), row.querySelector('.course-edit-category-new'));
+      await apiFetch(`/courses/${id}`, { method: 'PUT', body: JSON.stringify({ title, url, categoryId, branch }) });
       courseEditingId = null;
       await refreshData();
       renderPage();
@@ -3609,7 +3714,11 @@ function pageMembers(){
                     ? '<span style="color:var(--text-400);">—</span>'
                     : u.negligenceExempt
                       ? '<span class="badge badge-green">مستثنى</span>'
-                      : `${monthlyNegligentDays(u.id, new Date()).days} / 6`}</td>
+                      : `<span class="neg-count">${monthlyNegligentDays(u.id, new Date()).days} / 6</span>${(viewerIsSuper && !isSuper) ? `
+                        <span class="row-actions" style="display:inline-flex;gap:4px;margin-inline-start:6px;">
+                          <button type="button" class="btn btn-ghost btn-sm btn-icon negligence-decrease-btn" data-id="${u.id}" title="إنقاص يوم تقصير (متاح للسوبر أدمن بس)">−</button>
+                          <button type="button" class="btn btn-ghost btn-sm btn-icon negligence-increase-btn" data-id="${u.id}" title="إضافة يوم تقصير (متاح للسوبر أدمن بس)">+</button>
+                        </span>` : ''}`}</td>
                 <td>${u.status==='active'
                     ? '<span class="badge badge-green">نشط</span>'
                     : u.suspendedAuto
@@ -4015,6 +4124,32 @@ function bindMembersEvents(){
       toast(data.message || 'تم تحديث حالة الاستثناء', 'ok');
     } catch (err) {
       toast(err.message, 'err');
+    }
+  }));
+  /* تعديل يدوي تراكمي لأيام التقصير (0-6) — مقصور على السوبر أدمن، ومطبّق
+     أيضًا على مستوى قاعدة البيانات (increase_negligence/decrease_negligence) */
+  $$('.negligence-increase-btn').forEach(btn => btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    try {
+      const data = await apiFetch(`/users/${btn.dataset.id}/negligence-increase`, { method: 'PUT' });
+      await refreshData();
+      renderPage();
+      toast(data.message || 'تم إضافة يوم تقصير', 'ok');
+    } catch (err) {
+      toast(err.message, 'err');
+      btn.disabled = false;
+    }
+  }));
+  $$('.negligence-decrease-btn').forEach(btn => btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    try {
+      const data = await apiFetch(`/users/${btn.dataset.id}/negligence-decrease`, { method: 'PUT' });
+      await refreshData();
+      renderPage();
+      toast(data.message || 'تم إنقاص يوم تقصير', 'ok');
+    } catch (err) {
+      toast(err.message, 'err');
+      btn.disabled = false;
     }
   }));
 }
