@@ -1199,6 +1199,28 @@ async function usersUpdateNegligenceExempt(id, exempt){
   return { message: exempt ? `تم استثناء ${data.name} من احتساب التقصير` : `تم إلغاء استثناء ${data.name} من احتساب التقصير`, user: data };
 }
 
+/* أيام التقصير الملغاة يدويًا — قراءة (السوبر أدمن/المدير يشوف الكل، والعضو
+   يشوف أيامه هو بس، حسب RLS)، تُحمَّل مع باقي البيانات في refreshData */
+async function negligenceForgivenDaysList(){
+  const { data, error } = await sb.from('negligence_forgiven_days').select('*');
+  if(error) throw new Error('تعذّر تحميل الأيام الملغاة من التقصير');
+  return { days: data };
+}
+/* إلغاء يوم تقصير/تأخير معيّن لعضو معيّن — مقصور على السوبر أدمن (RLS +
+   الدالة نفسها من supabase_migration_v24). بتعيد حساب أيام التقصير فورًا
+   على السيرفر وترجّع العدّ الجديد */
+async function negligenceForgiveDay(userId, date){
+  const { data, error } = await sb.rpc('forgive_negligence_day', { p_user_id: userId, p_date: date });
+  if(error) throw new Error(error.message || 'تعذّر إلغاء يوم التقصير');
+  return { message: 'تم إلغاء اليوم من التقصير', negligentDays: data };
+}
+/* التراجع عن إلغاء يوم — يرجّع اليوم يُحتسب تقصيرًا/تأخيرًا زي ما كان */
+async function negligenceUnforgiveDay(userId, date){
+  const { data, error } = await sb.rpc('unforgive_negligence_day', { p_user_id: userId, p_date: date });
+  if(error) throw new Error(error.message || 'تعذّر التراجع عن إلغاء اليوم');
+  return { message: 'رجع اليوم يُحتسب زي ما كان', negligentDays: data };
+}
+
 /* تعيين كلمة مرور جديدة لعضو (مدير فقط) — عبر Supabase Edge Function بصلاحية service_role،
    لأن كلمات المرور مشفّرة تشفير أحادي الاتجاه ومفيش طريقة "لعرض" القديمة أبدًا */
 async function usersResetPassword(id, newPassword){
@@ -1390,6 +1412,9 @@ async function apiFetch(path, options = {}){
   if((m = path.match(/^\/users\/(\d+)\/toggle-status$/)) && method === 'PUT') return usersToggleStatus(Number(m[1]));
   if((m = path.match(/^\/users\/(\d+)\/role$/)) && method === 'PUT') return usersUpdateRole(Number(m[1]), body.role);
   if((m = path.match(/^\/users\/(\d+)\/negligence-exempt$/)) && method === 'PUT') return usersUpdateNegligenceExempt(Number(m[1]), !!body.exempt);
+  if(path === '/negligence-forgiven-days' && method === 'GET') return negligenceForgivenDaysList();
+  if((m = path.match(/^\/negligence-forgiven-days\/(\d+)\/(\d{4}-\d{2}-\d{2})$/)) && method === 'POST') return negligenceForgiveDay(Number(m[1]), m[2]);
+  if((m = path.match(/^\/negligence-forgiven-days\/(\d+)\/(\d{4}-\d{2}-\d{2})$/)) && method === 'DELETE') return negligenceUnforgiveDay(Number(m[1]), m[2]);
   if((m = path.match(/^\/users\/(\d+)\/reset-password$/)) && method === 'PUT') return usersResetPassword(Number(m[1]), body.newPassword);
   if((m = path.match(/^\/users\/(\d+)$/)) && method === 'DELETE') return usersDelete(Number(m[1]));
 
@@ -1432,7 +1457,8 @@ const state = {
   messages: [],
   resources: [],
   resourceColumns: [],
-  notifications: []
+  notifications: [],
+  negligenceForgivenDays: []
 };
 
 /* يجلب البيانات المطلوبة لعرض الصفحة الحالية من الباك إند */
@@ -1447,7 +1473,8 @@ async function refreshData(){
     apiFetch('/users').then(d => { state.users = d.users || []; }),
     apiFetch('/resource-columns').then(d => { state.resourceColumns = d.columns || []; }),
     apiFetch('/resources').then(d => { state.resources = d.resources || []; }),
-    apiFetch('/notifications').then(d => { state.notifications = d.notifications || []; }).catch(() => {})
+    apiFetch('/notifications').then(d => { state.notifications = d.notifications || []; }).catch(() => {}),
+    apiFetch('/negligence-forgiven-days').then(d => { state.negligenceForgivenDays = d.days || []; }).catch(() => {})
   ];
   await Promise.all(jobs);
   if(isAdmin){
@@ -1679,6 +1706,12 @@ function dailyBreakdownForUser(userId, monthDate){
       rows.push({ date: dStr, status: 'holiday', time: null });
       continue;
     }
+    // يوم اتلغى يدويًا بمعرفة السوبر أدمن (v24) — يُعرض بحالة مستقلة
+    // ومفيش أي احتساب عليه خالص، بغض النظر عن وجود تقرير فيه أو لأ
+    if(isNegligenceDayForgiven(userId, dStr)){
+      rows.push({ date: dStr, status: 'forgiven', time: null });
+      continue;
+    }
     if(postponeUntil && dStr <= postponeUntil){
       rows.push({ date: dStr, status: 'postponed', time: null });
       continue;
@@ -1717,6 +1750,11 @@ function isFridayDate(dateStr){
   if(!dateStr) return false;
   const [y,m,d] = dateStr.split('-').map(Number);
   return new Date(y, m-1, d).getDay() === 5;
+}
+/* هل السوبر أدمن ألغى يوم تقصير/تأخير معيّن لعضو معيّن؟ (v24) — لو نعم،
+   اليوم بيتعامل معاه زي إجازة الجمعة بالظبط: مفيش أي احتساب عليه خالص */
+function isNegligenceDayForgiven(userId, dateStr){
+  return state.negligenceForgivenDays.some(f => f.userId === userId && f.date === dateStr);
 }
 function predictedReportTarget(userId){
   const user = findUser(userId);
@@ -1997,6 +2035,7 @@ async function logout(){
   state.resources = [];
   state.resourceColumns = [];
   state.notifications = [];
+  state.negligenceForgivenDays = [];
   $('#appScreen').classList.add('hidden');
   $('#authScreen').classList.remove('hidden');
   switchAuthTab('login');
@@ -2640,7 +2679,7 @@ function reportsAdminView(){
                 <td colspan="4" style="padding:0;">
                   <div style="padding:12px 16px; background:var(--bg-100, #f8f9fb); border-top:1px solid var(--border-color, #e5e7eb);">
                     <table style="width:100%;">
-                      <thead><tr><th>اليوم</th><th>الحالة</th><th>وقت التسجيل</th></tr></thead>
+                      <thead><tr><th>اليوم</th><th>الحالة</th><th>وقت التسجيل</th>${viewerIsSuper1 ? '<th>إجراء</th>' : ''}</tr></thead>
                       <tbody>
                         ${dailyBreakdownForUser(row.id, selectedMonth).map(d => `
                           <tr>
@@ -2650,11 +2689,19 @@ function reportsAdminView(){
                               : d.status==='late' ? '<span class="badge badge-amber">⏰ تأخير</span>'
                               : d.status==='postponed' ? '<span class="badge badge-green">⏸️ مؤجّل بعذر مقبول</span>'
                               : d.status==='holiday' ? '<span class="badge badge-grey">🌴 إجازة (الجمعة)</span>'
+                              : d.status==='forgiven' ? '<span class="badge badge-grey">✋ ملغى من التقصير</span>'
                               : '<span class="badge badge-red">🚫 تقصير (لم يسجل)</span>'
                             }</td>
                             <td>${d.time ? formatDateTime(d.time) : '—'}</td>
+                            ${viewerIsSuper1 ? `<td>${
+                              (d.status==='missing' || d.status==='late')
+                                ? `<button class="btn btn-ghost btn-sm forgive-negligence-day-btn" data-user="${row.id}" data-date="${d.date}" title="متاح للسوبر أدمن بس">إلغاء من التقصير</button>`
+                                : d.status==='forgiven'
+                                  ? `<button class="btn btn-ghost btn-sm unforgive-negligence-day-btn" data-user="${row.id}" data-date="${d.date}" title="متاح للسوبر أدمن بس">تراجع</button>`
+                                  : '—'
+                            }</td>` : ''}
                           </tr>
-                        `).join('') || '<tr><td colspan="3" style="text-align:center;color:var(--text-400);padding:16px;">لا توجد أيام بعد في هذا الشهر</td></tr>'}
+                        `).join('') || `<tr><td colspan="${viewerIsSuper1 ? 4 : 3}" style="text-align:center;color:var(--text-400);padding:16px;">لا توجد أيام بعد في هذا الشهر</td></tr>`}
                       </tbody>
                     </table>
                   </div>
@@ -3623,6 +3670,28 @@ function bindReportsEvents(){
       const id = Number(btn.dataset.id);
       expandedNegligenceUserId = expandedNegligenceUserId === id ? null : id;
       renderPage();
+    }));
+    $$('.forgive-negligence-day-btn').forEach(btn => btn.addEventListener('click', async () => {
+      if(!confirm('إلغاء هذا اليوم من احتساب التقصير لهذا العضو؟')) return;
+      try {
+        const data = await negligenceForgiveDay(Number(btn.dataset.user), btn.dataset.date);
+        await refreshData();
+        renderPage();
+        toast(data.message, 'ok');
+      } catch (err) {
+        toast(err.message, 'err');
+      }
+    }));
+    $$('.unforgive-negligence-day-btn').forEach(btn => btn.addEventListener('click', async () => {
+      if(!confirm('التراجع عن الإلغاء — هذا اليوم هيرجع يُحتسب تقصيرًا/تأخيرًا زي ما كان؟')) return;
+      try {
+        const data = await negligenceUnforgiveDay(Number(btn.dataset.user), btn.dataset.date);
+        await refreshData();
+        renderPage();
+        toast(data.message, 'ok');
+      } catch (err) {
+        toast(err.message, 'err');
+      }
     }));
     const filterSel = $('#reportFilterMember');
     const dateInput = $('#reportFilterDate');
