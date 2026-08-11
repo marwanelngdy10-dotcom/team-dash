@@ -95,7 +95,7 @@
   .card{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); box-shadow:var(--shadow-sm);}
   .form-row{display:flex; flex-direction:column; gap:6px; margin-bottom:16px;}
   .form-row label{font-size:13px; font-weight:700; color:var(--text-600);}
-  .form-row input[type=text], .form-row input[type=email], .form-row input[type=password], .form-row input[type=date], .form-row select, .form-row textarea{
+  .form-row input[type=text], .form-row input[type=email], .form-row input[type=password], .form-row input[type=date], .form-row input[type=url], .form-row input[type=tel], .form-row select, .form-row textarea{
     padding:11px 13px; border:1.5px solid var(--border); border-radius:var(--radius-sm); font-size:14.5px; background:#fff; color:var(--text-900); width:100%; transition:.15s;
   }
   .form-row input:focus, .form-row select:focus, .form-row textarea:focus{border-color:var(--amber-500);}
@@ -299,6 +299,12 @@
   .res-cols-list{display:flex; flex-wrap:wrap; gap:8px; margin-bottom:18px;}
   table.res-table td, table.res-table th{max-width:260px;}
   table.res-table td.res-cell-note, table.res-table td.res-cell-text{white-space:pre-wrap; word-break:break-word;}
+
+  /* ===== COURSES (الكورسات) ===== */
+  .course-input{padding:8px 10px; border:1.5px solid var(--border); border-radius:8px; font-size:13.5px; width:100%; background:#fff; color:var(--text-900); transition:.15s;}
+  .course-input:focus{border-color:var(--amber-500); outline:none;}
+  tr.course-add-trigger-row td{border-top:1px dashed var(--border);}
+  tr.course-add-row td, tr.course-edit-row td{background:var(--amber-100);}
 
   .bar-row{display:flex; align-items:center; gap:12px; margin-bottom:12px; font-size:13px;}
   .bar-label{width:120px; flex-shrink:0; color:var(--text-600); font-weight:700;}
@@ -825,57 +831,6 @@
   </div>
 </div>
 
-<!-- ============ COURSE COLUMN MODAL (إضافة عمود لجدول الكورسات — مدير فقط) ============ -->
-<div class="modal-overlay hidden" id="courseColModalOverlay">
-  <div class="modal">
-    <div class="modal-head">
-      <h3>إضافة عمود جديد</h3>
-      <button class="modal-close" id="courseColModalClose"></button>
-    </div>
-    <div class="modal-body">
-      <form id="courseColForm">
-        <div class="form-row">
-          <label for="courseColLabel">اسم العمود</label>
-          <input type="text" id="courseColLabel" required placeholder="مثال: اسم الكورس">
-        </div>
-        <div class="form-row">
-          <label for="courseColType">نوع البيانات</label>
-          <select id="courseColType">
-            <option value="text">نص</option>
-            <option value="link">رابط</option>
-            <option value="date">تاريخ</option>
-            <option value="note">ملاحظة (نص طويل)</option>
-          </select>
-        </div>
-        <div class="modal-foot">
-          <button type="button" class="btn btn-ghost" id="courseColCancelBtn">إلغاء</button>
-          <button type="submit" class="btn btn-primary">إضافة العمود</button>
-        </div>
-      </form>
-    </div>
-  </div>
-</div>
-
-<!-- ============ COURSE ROW MODAL (إضافة/تعديل كورس — مدير فقط) ============ -->
-<div class="modal-overlay hidden" id="courseRowModalOverlay">
-  <div class="modal">
-    <div class="modal-head">
-      <h3 id="courseRowModalTitle">إضافة كورس جديد</h3>
-      <button class="modal-close" id="courseRowModalClose"></button>
-    </div>
-    <div class="modal-body">
-      <form id="courseRowForm">
-        <input type="hidden" id="courseRowId">
-        <div id="courseRowFieldsWrap"></div>
-        <div class="modal-foot">
-          <button type="button" class="btn btn-ghost" id="courseRowCancelBtn">إلغاء</button>
-          <button type="submit" class="btn btn-primary">حفظ</button>
-        </div>
-      </form>
-    </div>
-  </div>
-</div>
-
 <script type="module">
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
@@ -906,7 +861,8 @@ const ICONS = {
   bulb:`<svg class="icon" viewBox="0 0 24 24"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a6.5 6.5 0 0 0-3.8 11.8c.6.45 1.05 1.15 1.15 1.9h5.3c.1-.75.55-1.45 1.15-1.9A6.5 6.5 0 0 0 12 2Z"/></svg>`,
   chat:`<svg class="icon" viewBox="0 0 24 24"><path d="M4 4h16v12H8l-4 4V4Z"/><line x1="8" y1="9" x2="16" y2="9"/><line x1="8" y1="13" x2="13" y2="13"/></svg>`,
   book:`<svg class="icon" viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5Z"/><path d="M4 5.5v15A2.5 2.5 0 0 1 6.5 18H20"/></svg>`,
-  bell:`<svg class="icon" viewBox="0 0 24 24"><path d="M6 9a6 6 0 0 1 12 0c0 4.5 1.5 6 2 6.5H4c.5-.5 2-2 2-6.5Z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>`
+  bell:`<svg class="icon" viewBox="0 0 24 24"><path d="M6 9a6 6 0 0 1 12 0c0 4.5 1.5 6 2 6.5H4c.5-.5 2-2 2-6.5Z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>`,
+  grad:`<svg class="icon" viewBox="0 0 24 24"><path d="M2 9.5 12 5l10 4.5-10 4.5-10-4.5Z"/><path d="M6 11.5V17c0 1.4 2.7 3 6 3s6-1.6 6-3v-5.5"/><path d="M21 9.5V16"/></svg>`
 };
 
 /* ============================================================
@@ -1408,46 +1364,28 @@ async function resourcesDelete(id){
   return { message: 'تم حذف المصدر' };
 }
 
-/* الكورسات — جدول مستقل تمامًا عن مصادر التعلم، بنفس فكرة الأعمدة
-   القابلة للتخصيص (v25). كل عضو نشط يشوفه قراءة فقط، والمدير بس يضيف/يعدّل */
-async function courseColumnsList(){
-  const { data, error } = await sb.from('course_columns').select('*').order('order', { ascending: true });
-  if(error) throw new Error('تعذّر تحميل أعمدة الكورسات');
-  return { columns: data };
-}
-async function courseColumnsCreate(p){
-  const key = 'c_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-  const { data: existing } = await sb.from('course_columns').select('order').order('order', { ascending: false }).limit(1);
-  const nextOrder = existing && existing.length ? (existing[0].order + 1) : 0;
-  const { data, error } = await sb.from('course_columns').insert({
-    key, label: p.label, type: p.type || 'text', order: nextOrder
-  }).select().single();
-  if(error) throw new Error('تعذّر إضافة العمود');
-  return { column: data };
-}
-async function courseColumnsDelete(id){
-  const { error } = await sb.from('course_columns').delete().eq('id', id);
-  if(error) throw new Error(error.message || 'تعذّر حذف العمود');
-  return { message: 'تم حذف العمود' };
-}
+/* الكورسات — جدول بسيط (عنوان + رابط) يضيفه المدير على طول، من غير ما يحتاج
+   يعرّف أعمدة الأول زي مصادر التعلم — كل الأعضاء النشطين يشوفوها قراءة فقط */
 async function coursesList(){
-  const { data, error } = await sb.from('courses').select('*').order('createdAt', { ascending: false });
+  const { data, error } = await sb.from('courses').select('*').order('order', { ascending: true }).order('createdAt', { ascending: true });
   if(error) throw new Error('تعذّر تحميل الكورسات');
   return { courses: data };
 }
-async function coursesCreate(p){
+async function courseCreate(p){
   const { data, error } = await sb.from('courses').insert({
-    data: p.data || {}, createdBy: state.currentUser ? state.currentUser.id : null
+    title: (p.title || '').trim(), url: (p.url || '').trim(), createdBy: state.currentUser ? state.currentUser.id : null
   }).select().single();
-  if(error) throw new Error('تعذّر إضافة الكورس');
+  if(error) throw new Error(error.message && error.message.includes('check') ? 'برجاء إدخال العنوان والرابط' : 'تعذّر إضافة الكورس');
   return { course: data };
 }
-async function coursesUpdate(id, p){
-  const { data, error } = await sb.from('courses').update({ data: p.data || {} }).eq('id', id).select().single();
-  if(error) throw new Error('تعذّر تحديث الكورس');
+async function courseUpdate(id, p){
+  const { data, error } = await sb.from('courses').update({
+    title: (p.title || '').trim(), url: (p.url || '').trim()
+  }).eq('id', id).select().single();
+  if(error) throw new Error(error.message && error.message.includes('check') ? 'برجاء إدخال العنوان والرابط' : 'تعذّر تحديث الكورس');
   return { course: data };
 }
-async function coursesDelete(id){
+async function courseDelete(id){
   const { error } = await sb.from('courses').delete().eq('id', id);
   if(error) throw new Error(error.message || 'تعذّر حذف الكورس');
   return { message: 'تم حذف الكورس' };
@@ -1532,14 +1470,10 @@ async function apiFetch(path, options = {}){
   if((m = path.match(/^\/resources\/(\d+)$/)) && method === 'PUT') return resourcesUpdate(Number(m[1]), body);
   if((m = path.match(/^\/resources\/(\d+)$/)) && method === 'DELETE') return resourcesDelete(Number(m[1]));
 
-  if(path === '/course-columns' && method === 'GET') return courseColumnsList();
-  if(path === '/course-columns' && method === 'POST') return courseColumnsCreate(body);
-  if((m = path.match(/^\/course-columns\/(\d+)$/)) && method === 'DELETE') return courseColumnsDelete(Number(m[1]));
-
   if(path === '/courses' && method === 'GET') return coursesList();
-  if(path === '/courses' && method === 'POST') return coursesCreate(body);
-  if((m = path.match(/^\/courses\/(\d+)$/)) && method === 'PUT') return coursesUpdate(Number(m[1]), body);
-  if((m = path.match(/^\/courses\/(\d+)$/)) && method === 'DELETE') return coursesDelete(Number(m[1]));
+  if(path === '/courses' && method === 'POST') return courseCreate(body);
+  if((m = path.match(/^\/courses\/(\d+)$/)) && method === 'PUT') return courseUpdate(Number(m[1]), body);
+  if((m = path.match(/^\/courses\/(\d+)$/)) && method === 'DELETE') return courseDelete(Number(m[1]));
 
   if(path === '/notifications' && method === 'GET') return notificationsList();
   if((m = path.match(/^\/notifications\/(\d+)\/read$/)) && method === 'PUT') return notificationsMarkRead(Number(m[1]));
@@ -1563,7 +1497,6 @@ const state = {
   resources: [],
   resourceColumns: [],
   courses: [],
-  courseColumns: [],
   notifications: [],
   negligenceForgivenDays: []
 };
@@ -1580,7 +1513,6 @@ async function refreshData(){
     apiFetch('/users').then(d => { state.users = d.users || []; }),
     apiFetch('/resource-columns').then(d => { state.resourceColumns = d.columns || []; }),
     apiFetch('/resources').then(d => { state.resources = d.resources || []; }),
-    apiFetch('/course-columns').then(d => { state.courseColumns = d.columns || []; }),
     apiFetch('/courses').then(d => { state.courses = d.courses || []; }),
     apiFetch('/notifications').then(d => { state.notifications = d.notifications || []; }).catch(() => {}),
     apiFetch('/negligence-forgiven-days').then(d => { state.negligenceForgivenDays = d.days || []; }).catch(() => {})
@@ -2144,7 +2076,6 @@ async function logout(){
   state.resources = [];
   state.resourceColumns = [];
   state.courses = [];
-  state.courseColumns = [];
   state.notifications = [];
   state.negligenceForgivenDays = [];
   $('#appScreen').classList.add('hidden');
@@ -2174,7 +2105,7 @@ const NAV_ITEMS = [
   {key:'reports', label:'التقارير', icon:'reports'},
   {key:'learning', label:'التعليم', icon:'bulb'},
   {key:'resources', label:'مصادر التعلم', icon:'book'},
-  {key:'courses', label:'الكورسات', icon:'book'},
+  {key:'courses', label:'الكورسات', icon:'grad'},
   {key:'chat', label:'الشات', icon:'chat'},
   {key:'members', label:'الأعضاء', icon:'members', adminOnly:true},
   {key:'settings', label:'الإعدادات', icon:'settings'}
@@ -2311,6 +2242,8 @@ function renderSidebar(){
     btn.addEventListener('click', async () => {
       state.activePage = btn.dataset.page;
       localStorage.setItem(ACTIVE_PAGE_KEY, state.activePage);
+      courseAddingRow = false;
+      courseEditingId = null;
       if(state.activePage === 'chat') markChatNotificationsRead();
       closeSidebarMobile();
       renderSidebar();
@@ -3297,120 +3230,168 @@ $('#resRowForm').addEventListener('submit', async (e) => {
 });
 
 /* ============================================================
-   PAGE: الكورسات — جدول مستقل تمامًا عن مصادر التعلم (v25)، بنفس فكرة
-   الأعمدة القابلة للتخصيص + صفوف بيانات. المدير يحدد العناوين وبعدين
-   يضيف الكورسات (روابط) بسرعة، وكل الأعضاء النشطين يشوفوها قراءة فقط
+   PAGE: الكورسات — جدول بسيط (عنوان + رابط)، من غير تعريف أعمدة الأول.
+   المدير يدوس "+ إضافة كورس" فينزل سطر جديد في الجدول على طول
+   (بدون نافذة منبثقة) يكتب فيه العنوان ويلزق الرابط، وكل الأعضاء
+   النشطين يشوفوا الجدول ده قراءة فقط.
    ============================================================ */
+let courseAddingRow = false;
+let courseEditingId = null;
+
 function pageCourses(){
   const isAdmin = state.currentUser.role === 'admin';
-  const cols = state.courseColumns.slice().sort((a,b) => a.order - b.order);
-  const rows = state.courses.slice().sort((a,b) => (b.createdAt||'').localeCompare(a.createdAt||''));
-
+  const rows = state.courses.slice();
   return `
     <div class="page-head">
-      <div><h1>الكورسات</h1><p>${isAdmin ? 'جدول كورسات مشترك للفريق كله — ابنِ الأعمدة اللي تحتاجها (اسم الكورس، الرابط...) وأضف الكورسات' : 'كورسات ومراجع أضافها المدير للفريق كله'}</p></div>
-      ${isAdmin ? `<button class="btn btn-primary" id="openCourseRowModalBtn" ${!cols.length ? 'disabled title="أضف عمودًا واحدًا على الأقل أولًا"' : ''}>${ICONS.plus} إضافة كورس</button>` : ''}
+      <div><h1>الكورسات</h1><p>${isAdmin ? 'أضف روابط الكورسات هنا — كل عضو نشط في الفريق يقدر يشوفها' : 'كورسات أضافها المدير للفريق كله'}</p></div>
     </div>
-
-    ${isAdmin ? `
-    <div class="res-toolbar">
-      <button type="button" class="btn btn-ghost btn-sm" id="openCourseColModalBtn">${ICONS.plus} إضافة عمود</button>
-    </div>
-    ${cols.length ? `<div class="res-cols-list">${cols.map(c => `
-      <span class="res-col-tag">${escapeHtml(c.label)} <small style="opacity:.6">(${resColTypeLabel(c.type)})</small>
-        <button type="button" class="del-course-col-btn" data-id="${c.id}" title="حذف العمود">${ICONS.x}</button>
-      </span>`).join('')}</div>` : ''}
-    ` : ''}
-
-    <div id="coursesTableWrap">${renderCoursesTableHtml(cols, rows, isAdmin)}</div>
+    <div id="coursesTableWrap">${renderCoursesTableHtml(rows, isAdmin)}</div>
   `;
 }
 
-function renderCoursesTableHtml(cols, rows, isAdmin){
-  if(!cols.length){
-    return emptyState('book', 'لا توجد أعمدة بعد', isAdmin ? 'ابدأ بإضافة أول عمود (مثال: اسم الكورس، رابط، الجهة المقدّمة)' : 'لسه المدير مابناش هذا الجدول');
+function courseRowHtml(c, isAdmin){
+  if(isAdmin && courseEditingId === c.id){
+    return `<tr class="course-edit-row" data-id="${c.id}">
+      <td><input type="text" class="course-input course-edit-title" value="${escapeHtml(c.title)}" placeholder="عنوان الكورس"></td>
+      <td><input type="url" class="course-input course-edit-url" value="${escapeHtml(c.url)}" placeholder="رابط الكورس"></td>
+      <td>
+        <div class="row-actions">
+          <button type="button" class="btn btn-primary btn-sm save-course-edit-btn" data-id="${c.id}" title="حفظ">${ICONS.check}</button>
+          <button type="button" class="btn btn-ghost btn-sm cancel-course-edit-btn" title="إلغاء">${ICONS.x}</button>
+        </div>
+      </td>
+    </tr>`;
   }
-  if(!rows.length){
-    return emptyState('book', 'لا توجد كورسات بعد', isAdmin ? 'أضف أول كورس يفيد الفريق' : 'هيظهر هنا أي كورس يضيفه المدير');
+  return `<tr>
+    <td>${escapeHtml(c.title)}</td>
+    <td><a href="${escapeHtml(c.url)}" target="_blank" rel="noopener">${escapeHtml(c.url)}</a></td>
+    ${isAdmin ? `<td>
+      <div class="row-actions">
+        <button type="button" class="btn btn-ghost btn-sm edit-course-btn" data-id="${c.id}">${ICONS.edit} تعديل</button>
+        <button type="button" class="btn btn-danger btn-sm del-course-btn" data-id="${c.id}">${ICONS.trash} حذف</button>
+      </div>
+    </td>` : ''}
+  </tr>`;
+}
+
+function courseAddRowHtml(){
+  if(!courseAddingRow){
+    return `<tr class="course-add-trigger-row">
+      <td colspan="3">
+        <button type="button" class="btn btn-ghost btn-sm" id="addCourseRowBtn">${ICONS.plus} إضافة كورس</button>
+      </td>
+    </tr>`;
+  }
+  return `<tr class="course-add-row">
+    <td><input type="text" class="course-input" id="newCourseTitle" placeholder="عنوان الكورس"></td>
+    <td><input type="url" class="course-input" id="newCourseUrl" placeholder="رابط الكورس"></td>
+    <td>
+      <div class="row-actions">
+        <button type="button" class="btn btn-primary btn-sm" id="saveNewCourseBtn" title="حفظ">${ICONS.check}</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="cancelNewCourseBtn" title="إلغاء">${ICONS.x}</button>
+      </div>
+    </td>
+  </tr>`;
+}
+
+function renderCoursesTableHtml(rows, isAdmin){
+  if(!rows.length && !isAdmin){
+    return emptyState('grad', 'لا توجد كورسات بعد', 'هيظهر هنا أي كورس يضيفه المدير');
   }
   return `
     <div class="table-wrap">
-      <table class="res-table">
+      <table class="res-table courses-table">
         <thead><tr>
-          ${cols.map(c => `<th>${escapeHtml(c.label)}</th>`).join('')}
+          <th>العنوان</th>
+          <th>الرابط</th>
           ${isAdmin ? '<th></th>' : ''}
         </tr></thead>
         <tbody>
-          ${rows.map(r => {
-            return `<tr>
-              ${cols.map(c => `<td class="res-cell-${c.type === 'note' ? 'note' : 'text'}">${resCellHtml(c, r.data ? r.data[c.key] : null)}</td>`).join('')}
-              ${isAdmin ? `<td>
-                <div class="row-actions">
-                  <button type="button" class="btn btn-ghost btn-sm edit-course-row-btn" data-id="${r.id}">${ICONS.edit} تعديل</button>
-                  <button type="button" class="btn btn-danger btn-sm del-course-row-btn" data-id="${r.id}">${ICONS.trash} حذف</button>
-                </div>
-              </td>` : ''}
-            </tr>`;
-          }).join('')}
+          ${rows.map(c => courseRowHtml(c, isAdmin)).join('')}
+          ${isAdmin ? courseAddRowHtml() : ''}
         </tbody>
       </table>
     </div>
   `;
 }
 
-function openCourseColumnModal(){
-  $('#courseColForm').reset();
-  $('#courseColModalOverlay').classList.remove('hidden');
+function rerenderCoursesTable(){
+  const wrap = $('#coursesTableWrap');
+  if(!wrap) return;
+  wrap.innerHTML = renderCoursesTableHtml(state.courses, state.currentUser.role === 'admin');
+  bindCoursesEvents();
 }
-function closeCourseColumnModal(){ $('#courseColModalOverlay').classList.add('hidden'); }
-
-function buildCourseRowFields(existingData){
-  const cols = state.courseColumns.slice().sort((a,b) => a.order - b.order);
-  return cols.map(c => {
-    const val = existingData ? (existingData[c.key] ?? '') : '';
-    const inputType = c.type === 'link' ? 'url' : (c.type === 'date' ? 'date' : 'text');
-    if(c.type === 'note'){
-      return `<div class="form-row">
-        <label for="courseField_${c.key}">${escapeHtml(c.label)}</label>
-        <textarea id="courseField_${c.key}" data-key="${c.key}" class="course-field">${escapeHtml(val)}</textarea>
-      </div>`;
-    }
-    return `<div class="form-row">
-      <label for="courseField_${c.key}">${escapeHtml(c.label)}</label>
-      <input type="${inputType}" id="courseField_${c.key}" data-key="${c.key}" class="course-field" value="${escapeHtml(val)}">
-    </div>`;
-  }).join('');
-}
-
-function openCourseRowModal(id){
-  const row = id ? state.courses.find(r => r.id === id) : null;
-  $('#courseRowModalTitle').textContent = row ? 'تعديل الكورس' : 'إضافة كورس جديد';
-  $('#courseRowId').value = row ? row.id : '';
-  $('#courseRowFieldsWrap').innerHTML = buildCourseRowFields(row ? row.data : null);
-  $('#courseRowModalOverlay').classList.remove('hidden');
-}
-function closeCourseRowModal(){ $('#courseRowModalOverlay').classList.add('hidden'); }
 
 function bindCoursesEvents(){
-  const openColBtn = $('#openCourseColModalBtn');
-  if(openColBtn) openColBtn.addEventListener('click', openCourseColumnModal);
+  const addBtn = $('#addCourseRowBtn');
+  if(addBtn) addBtn.addEventListener('click', () => {
+    courseAddingRow = true;
+    rerenderCoursesTable();
+    const t = $('#newCourseTitle'); if(t) t.focus();
+  });
 
-  const openRowBtn = $('#openCourseRowModalBtn');
-  if(openRowBtn) openRowBtn.addEventListener('click', () => openCourseRowModal());
+  const cancelAddBtn = $('#cancelNewCourseBtn');
+  if(cancelAddBtn) cancelAddBtn.addEventListener('click', () => {
+    courseAddingRow = false;
+    rerenderCoursesTable();
+  });
 
-  $$('.del-course-col-btn').forEach(btn => btn.addEventListener('click', async () => {
-    if(!confirm('حذف العمود هيشيل بياناته من كل الصفوف كمان. متأكد؟')) return;
+  const saveNewBtn = $('#saveNewCourseBtn');
+  if(saveNewBtn) saveNewBtn.addEventListener('click', async () => {
+    const titleEl = $('#newCourseTitle'), urlEl = $('#newCourseUrl');
+    const title = titleEl.value.trim(), url = urlEl.value.trim();
+    if(!title || !url){ toast('برجاء إدخال العنوان والرابط', 'err'); return; }
+    saveNewBtn.disabled = true;
     try {
-      await apiFetch(`/course-columns/${btn.dataset.id}`, { method: 'DELETE' });
+      await apiFetch('/courses', { method: 'POST', body: JSON.stringify({ title, url }) });
+      courseAddingRow = true; // سيب سطر الإضافة مفتوح عشان يضيف كورس كورس على طول
       await refreshData();
       renderPage();
-      toast('تم حذف العمود', 'ok');
-    } catch (err) { toast(err.message, 'err'); }
+      toast('تمت إضافة الكورس', 'ok');
+      const t = $('#newCourseTitle'); if(t) t.focus();
+    } catch (err) {
+      toast(err.message, 'err');
+      saveNewBtn.disabled = false;
+    }
+  });
+
+  [$('#newCourseTitle'), $('#newCourseUrl')].forEach(el => {
+    if(!el) return;
+    el.addEventListener('keydown', (e) => {
+      if(e.key === 'Enter'){ e.preventDefault(); const b = $('#saveNewCourseBtn'); if(b) b.click(); }
+    });
+  });
+
+  $$('.edit-course-btn').forEach(btn => btn.addEventListener('click', () => {
+    courseEditingId = Number(btn.dataset.id);
+    rerenderCoursesTable();
   }));
 
-  $$('.edit-course-row-btn').forEach(btn => btn.addEventListener('click', () => openCourseRowModal(Number(btn.dataset.id))));
+  $$('.cancel-course-edit-btn').forEach(btn => btn.addEventListener('click', () => {
+    courseEditingId = null;
+    rerenderCoursesTable();
+  }));
 
-  $$('.del-course-row-btn').forEach(btn => btn.addEventListener('click', async () => {
+  $$('.save-course-edit-btn').forEach(btn => btn.addEventListener('click', async () => {
+    const id = Number(btn.dataset.id);
+    const row = btn.closest('tr');
+    const title = row.querySelector('.course-edit-title').value.trim();
+    const url = row.querySelector('.course-edit-url').value.trim();
+    if(!title || !url){ toast('برجاء إدخال العنوان والرابط', 'err'); return; }
+    btn.disabled = true;
+    try {
+      await apiFetch(`/courses/${id}`, { method: 'PUT', body: JSON.stringify({ title, url }) });
+      courseEditingId = null;
+      await refreshData();
+      renderPage();
+      toast('تم تحديث الكورس', 'ok');
+    } catch (err) {
+      toast(err.message, 'err');
+      btn.disabled = false;
+    }
+  }));
+
+  $$('.del-course-btn').forEach(btn => btn.addEventListener('click', async () => {
     if(!confirm('هل تريد حذف هذا الكورس؟')) return;
     try {
       await apiFetch(`/courses/${btn.dataset.id}`, { method: 'DELETE' });
@@ -3420,54 +3401,6 @@ function bindCoursesEvents(){
     } catch (err) { toast(err.message, 'err'); }
   }));
 }
-
-$('#courseColModalClose').addEventListener('click', closeCourseColumnModal);
-$('#courseColCancelBtn').addEventListener('click', closeCourseColumnModal);
-$('#courseColModalOverlay').addEventListener('click', (e) => { if(e.target.id === 'courseColModalOverlay') closeCourseColumnModal(); });
-
-$('#courseColForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const form = e.target;
-  const payload = { label: $('#courseColLabel').value.trim(), type: $('#courseColType').value };
-  if(!payload.label) return;
-  setFormBusy(form, true);
-  try {
-    await apiFetch('/course-columns', { method: 'POST', body: JSON.stringify(payload) });
-    toast('تمت إضافة العمود', 'ok');
-    closeCourseColumnModal();
-    await refreshData();
-    renderPage();
-  } catch (err) {
-    toast(err.message, 'err');
-  } finally {
-    setFormBusy(form, false);
-  }
-});
-
-$('#courseRowModalClose').addEventListener('click', closeCourseRowModal);
-$('#courseRowCancelBtn').addEventListener('click', closeCourseRowModal);
-$('#courseRowModalOverlay').addEventListener('click', (e) => { if(e.target.id === 'courseRowModalOverlay') closeCourseRowModal(); });
-
-$('#courseRowForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const form = e.target;
-  const data = {};
-  $$('.course-field', form).forEach(f => { data[f.dataset.key] = f.value.trim(); });
-  const id = $('#courseRowId').value;
-  setFormBusy(form, true);
-  try {
-    if(id) await apiFetch(`/courses/${id}`, { method: 'PUT', body: JSON.stringify({ data }) });
-    else await apiFetch('/courses', { method: 'POST', body: JSON.stringify({ data }) });
-    toast(id ? 'تم تحديث الكورس' : 'تمت إضافة الكورس', 'ok');
-    closeCourseRowModal();
-    await refreshData();
-    renderPage();
-  } catch (err) {
-    toast(err.message, 'err');
-  } finally {
-    setFormBusy(form, false);
-  }
-});
 
 /* ============================================================
    PAGE: الشات — قناة "الفريق كله" + رسائل خاصة بين عضوين
