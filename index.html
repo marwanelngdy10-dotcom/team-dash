@@ -3285,15 +3285,82 @@ $('#resRowForm').addEventListener('submit', async (e) => {
    ============================================================ */
 let courseAddingRow = false;
 let courseEditingId = null;
+/* فلترة صفحة الكورسات — حسب القسم (categoryId، أو 'none' لـ"بدون قسم")
+   وحسب الفرع (مطابقة نصية تامة بنفس الحروف والطريقة بالظبط زي ما اتكتب
+   بالضبط لكل كورس، من غير أي توحيد لحالة الأحرف أو تجاهل مسافات) */
+let courseFilterCategory = '';
+let courseFilterBranch = '';
 
 function pageCourses(){
   const isAdmin = state.currentUser.role === 'admin';
-  const rows = state.courses.slice();
   return `
     <div class="page-head">
       <div><h1>الكورسات</h1><p>${isAdmin ? 'أضف روابط الكورسات هنا — كل عضو نشط في الفريق يقدر يشوفها' : 'كورسات أضافها المدير للفريق كله'}</p></div>
     </div>
-    <div id="coursesTableWrap">${renderCoursesTableHtml(rows, isAdmin)}</div>
+    <div id="coursesTableWrap">${renderCoursesPageInnerHtml(isAdmin)}</div>
+  `;
+}
+
+function renderCoursesPageInnerHtml(isAdmin){
+  return `${courseFiltersHtml()}${renderCoursesTableHtml(courseFilteredRows(), isAdmin)}`;
+}
+
+/* الصفوف بعد تطبيق فلاتر القسم/الفرع الحاليين */
+function courseFilteredRows(){
+  return state.courses.filter(c => {
+    if(courseFilterCategory === 'none'){
+      if(c.categoryId) return false;
+    } else if(courseFilterCategory){
+      if(String(c.categoryId) !== String(courseFilterCategory)) return false;
+    }
+    if(courseFilterBranch && (c.branch || '') !== courseFilterBranch) return false;
+    return true;
+  });
+}
+
+/* قائمة "الفروع" الظاهرة في فلتر الفرع — بس الفروع الموجودة فعليًا (زي
+   ما اتكتبت بالظبط، من غير أي توحيد) ضمن القسم المختار حاليًا في فلتر
+   القسم (لو محددش قسم، بتظهر كل الفروع الموجودة في كل الكورسات) */
+function courseBranchOptionsForFilter(){
+  const pool = state.courses.filter(c => {
+    if(courseFilterCategory === 'none') return !c.categoryId;
+    if(courseFilterCategory) return String(c.categoryId) === String(courseFilterCategory);
+    return true;
+  });
+  const set = new Set();
+  pool.forEach(c => { if(c.branch && c.branch.trim()) set.add(c.branch); });
+  return Array.from(set).sort((a, b) => a.localeCompare(b, 'ar'));
+}
+
+function courseFiltersHtml(){
+  if(!state.courses.length && !state.courseCategories.length) return '';
+  const catOptions = state.courseCategories.map(cat =>
+    `<option value="${cat.id}" ${courseFilterCategory === String(cat.id) ? 'selected' : ''}>${escapeHtml(cat.title)}</option>`
+  ).join('');
+  const branches = courseBranchOptionsForFilter();
+  const branchOptions = branches.map(b =>
+    `<option value="${escapeHtml(b)}" ${courseFilterBranch === b ? 'selected' : ''}>${escapeHtml(b)}</option>`
+  ).join('');
+  const hasActiveFilter = !!(courseFilterCategory || courseFilterBranch);
+  return `
+    <div class="course-filters-bar" style="display:flex; gap:14px; flex-wrap:wrap; align-items:flex-end; margin-bottom:16px;">
+      <div class="form-row" style="max-width:220px;">
+        <label for="courseFilterCategorySel">تصفية حسب القسم</label>
+        <select id="courseFilterCategorySel">
+          <option value="">كل الأقسام</option>
+          <option value="none" ${courseFilterCategory === 'none' ? 'selected' : ''}>بدون قسم</option>
+          ${catOptions}
+        </select>
+      </div>
+      <div class="form-row" style="max-width:220px;">
+        <label for="courseFilterBranchSel">تصفية حسب الفرع</label>
+        <select id="courseFilterBranchSel" ${branches.length ? '' : 'disabled'}>
+          <option value="">كل الفروع</option>
+          ${branchOptions}
+        </select>
+      </div>
+      ${hasActiveFilter ? `<div class="form-row"><button type="button" class="btn btn-ghost" id="clearCourseFiltersBtn">إلغاء التصفية</button></div>` : ''}
+    </div>
   `;
 }
 
@@ -3369,9 +3436,14 @@ function courseAddRowHtml(){
 }
 
 function renderCoursesTableHtml(rows, isAdmin){
-  if(!rows.length && !isAdmin){
+  const totalCourses = state.courses.length;
+  if(!totalCourses && !isAdmin){
     return emptyState('grad', 'لا توجد كورسات بعد', 'هيظهر هنا أي كورس يضيفه المدير');
   }
+  // فيه كورسات فعليًا، لكن الفلترة الحالية (قسم/فرع) معندهاش أي نتيجة
+  const noMatchRow = (!rows.length && totalCourses)
+    ? `<tr><td colspan="5" style="text-align:center;color:var(--text-400);padding:24px;">لا توجد كورسات مطابقة لهذه الفلترة</td></tr>`
+    : '';
   return `
     <div class="table-wrap">
       <table class="res-table courses-table">
@@ -3383,6 +3455,7 @@ function renderCoursesTableHtml(rows, isAdmin){
           ${isAdmin ? '<th></th>' : ''}
         </tr></thead>
         <tbody>
+          ${noMatchRow}
           ${rows.map(c => courseRowHtml(c, isAdmin)).join('')}
           ${isAdmin ? courseAddRowHtml() : ''}
         </tbody>
@@ -3394,11 +3467,34 @@ function renderCoursesTableHtml(rows, isAdmin){
 function rerenderCoursesTable(){
   const wrap = $('#coursesTableWrap');
   if(!wrap) return;
-  wrap.innerHTML = renderCoursesTableHtml(state.courses, state.currentUser.role === 'admin');
+  wrap.innerHTML = renderCoursesPageInnerHtml(state.currentUser.role === 'admin');
   bindCoursesEvents();
 }
 
 function bindCoursesEvents(){
+  /* فلترة حسب القسم — اختيار قسم بيصفّر فلتر الفرع لأن الفروع المتاحة
+     بتتغيّر حسب القسم المختار */
+  const catFilterSel = $('#courseFilterCategorySel');
+  if(catFilterSel) catFilterSel.addEventListener('change', () => {
+    courseFilterCategory = catFilterSel.value;
+    courseFilterBranch = '';
+    rerenderCoursesTable();
+  });
+
+  /* فلترة حسب الفرع — مطابقة نصية تامة (نفس الحروف والطريقة بالظبط) */
+  const branchFilterSel = $('#courseFilterBranchSel');
+  if(branchFilterSel) branchFilterSel.addEventListener('change', () => {
+    courseFilterBranch = branchFilterSel.value;
+    rerenderCoursesTable();
+  });
+
+  const clearFiltersBtn = $('#clearCourseFiltersBtn');
+  if(clearFiltersBtn) clearFiltersBtn.addEventListener('click', () => {
+    courseFilterCategory = '';
+    courseFilterBranch = '';
+    rerenderCoursesTable();
+  });
+
   const addBtn = $('#addCourseRowBtn');
   if(addBtn) addBtn.addEventListener('click', () => {
     courseAddingRow = true;
