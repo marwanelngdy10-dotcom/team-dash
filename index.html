@@ -825,6 +825,57 @@
   </div>
 </div>
 
+<!-- ============ COURSE COLUMN MODAL (إضافة عمود لجدول الكورسات — مدير فقط) ============ -->
+<div class="modal-overlay hidden" id="courseColModalOverlay">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>إضافة عمود جديد</h3>
+      <button class="modal-close" id="courseColModalClose"></button>
+    </div>
+    <div class="modal-body">
+      <form id="courseColForm">
+        <div class="form-row">
+          <label for="courseColLabel">اسم العمود</label>
+          <input type="text" id="courseColLabel" required placeholder="مثال: اسم الكورس">
+        </div>
+        <div class="form-row">
+          <label for="courseColType">نوع البيانات</label>
+          <select id="courseColType">
+            <option value="text">نص</option>
+            <option value="link">رابط</option>
+            <option value="date">تاريخ</option>
+            <option value="note">ملاحظة (نص طويل)</option>
+          </select>
+        </div>
+        <div class="modal-foot">
+          <button type="button" class="btn btn-ghost" id="courseColCancelBtn">إلغاء</button>
+          <button type="submit" class="btn btn-primary">إضافة العمود</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ============ COURSE ROW MODAL (إضافة/تعديل كورس — مدير فقط) ============ -->
+<div class="modal-overlay hidden" id="courseRowModalOverlay">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="courseRowModalTitle">إضافة كورس جديد</h3>
+      <button class="modal-close" id="courseRowModalClose"></button>
+    </div>
+    <div class="modal-body">
+      <form id="courseRowForm">
+        <input type="hidden" id="courseRowId">
+        <div id="courseRowFieldsWrap"></div>
+        <div class="modal-foot">
+          <button type="button" class="btn btn-ghost" id="courseRowCancelBtn">إلغاء</button>
+          <button type="submit" class="btn btn-primary">حفظ</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
 <script type="module">
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
@@ -1357,6 +1408,51 @@ async function resourcesDelete(id){
   return { message: 'تم حذف المصدر' };
 }
 
+/* الكورسات — جدول مستقل تمامًا عن مصادر التعلم، بنفس فكرة الأعمدة
+   القابلة للتخصيص (v25). كل عضو نشط يشوفه قراءة فقط، والمدير بس يضيف/يعدّل */
+async function courseColumnsList(){
+  const { data, error } = await sb.from('course_columns').select('*').order('order', { ascending: true });
+  if(error) throw new Error('تعذّر تحميل أعمدة الكورسات');
+  return { columns: data };
+}
+async function courseColumnsCreate(p){
+  const key = 'c_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const { data: existing } = await sb.from('course_columns').select('order').order('order', { ascending: false }).limit(1);
+  const nextOrder = existing && existing.length ? (existing[0].order + 1) : 0;
+  const { data, error } = await sb.from('course_columns').insert({
+    key, label: p.label, type: p.type || 'text', order: nextOrder
+  }).select().single();
+  if(error) throw new Error('تعذّر إضافة العمود');
+  return { column: data };
+}
+async function courseColumnsDelete(id){
+  const { error } = await sb.from('course_columns').delete().eq('id', id);
+  if(error) throw new Error(error.message || 'تعذّر حذف العمود');
+  return { message: 'تم حذف العمود' };
+}
+async function coursesList(){
+  const { data, error } = await sb.from('courses').select('*').order('createdAt', { ascending: false });
+  if(error) throw new Error('تعذّر تحميل الكورسات');
+  return { courses: data };
+}
+async function coursesCreate(p){
+  const { data, error } = await sb.from('courses').insert({
+    data: p.data || {}, createdBy: state.currentUser ? state.currentUser.id : null
+  }).select().single();
+  if(error) throw new Error('تعذّر إضافة الكورس');
+  return { course: data };
+}
+async function coursesUpdate(id, p){
+  const { data, error } = await sb.from('courses').update({ data: p.data || {} }).eq('id', id).select().single();
+  if(error) throw new Error('تعذّر تحديث الكورس');
+  return { course: data };
+}
+async function coursesDelete(id){
+  const { error } = await sb.from('courses').delete().eq('id', id);
+  if(error) throw new Error(error.message || 'تعذّر حذف الكورس');
+  return { message: 'تم حذف الكورس' };
+}
+
 /* الإشعارات — تُنشأ تلقائيًا من قاعدة البيانات (إسناد مهمة / إنذارات تقصير) */
 async function notificationsList(){
   const { data, error } = await sb.from('notifications').select('*').order('createdAt', { ascending: false }).limit(50);
@@ -1436,6 +1532,15 @@ async function apiFetch(path, options = {}){
   if((m = path.match(/^\/resources\/(\d+)$/)) && method === 'PUT') return resourcesUpdate(Number(m[1]), body);
   if((m = path.match(/^\/resources\/(\d+)$/)) && method === 'DELETE') return resourcesDelete(Number(m[1]));
 
+  if(path === '/course-columns' && method === 'GET') return courseColumnsList();
+  if(path === '/course-columns' && method === 'POST') return courseColumnsCreate(body);
+  if((m = path.match(/^\/course-columns\/(\d+)$/)) && method === 'DELETE') return courseColumnsDelete(Number(m[1]));
+
+  if(path === '/courses' && method === 'GET') return coursesList();
+  if(path === '/courses' && method === 'POST') return coursesCreate(body);
+  if((m = path.match(/^\/courses\/(\d+)$/)) && method === 'PUT') return coursesUpdate(Number(m[1]), body);
+  if((m = path.match(/^\/courses\/(\d+)$/)) && method === 'DELETE') return coursesDelete(Number(m[1]));
+
   if(path === '/notifications' && method === 'GET') return notificationsList();
   if((m = path.match(/^\/notifications\/(\d+)\/read$/)) && method === 'PUT') return notificationsMarkRead(Number(m[1]));
   if(path === '/notifications/read-all' && method === 'PUT') return notificationsMarkAllRead();
@@ -1457,6 +1562,8 @@ const state = {
   messages: [],
   resources: [],
   resourceColumns: [],
+  courses: [],
+  courseColumns: [],
   notifications: [],
   negligenceForgivenDays: []
 };
@@ -1473,6 +1580,8 @@ async function refreshData(){
     apiFetch('/users').then(d => { state.users = d.users || []; }),
     apiFetch('/resource-columns').then(d => { state.resourceColumns = d.columns || []; }),
     apiFetch('/resources').then(d => { state.resources = d.resources || []; }),
+    apiFetch('/course-columns').then(d => { state.courseColumns = d.columns || []; }),
+    apiFetch('/courses').then(d => { state.courses = d.courses || []; }),
     apiFetch('/notifications').then(d => { state.notifications = d.notifications || []; }).catch(() => {}),
     apiFetch('/negligence-forgiven-days').then(d => { state.negligenceForgivenDays = d.days || []; }).catch(() => {})
   ];
@@ -2034,6 +2143,8 @@ async function logout(){
   state.messages = [];
   state.resources = [];
   state.resourceColumns = [];
+  state.courses = [];
+  state.courseColumns = [];
   state.notifications = [];
   state.negligenceForgivenDays = [];
   $('#appScreen').classList.add('hidden');
@@ -2063,6 +2174,7 @@ const NAV_ITEMS = [
   {key:'reports', label:'التقارير', icon:'reports'},
   {key:'learning', label:'التعليم', icon:'bulb'},
   {key:'resources', label:'مصادر التعلم', icon:'book'},
+  {key:'courses', label:'الكورسات', icon:'book'},
   {key:'chat', label:'الشات', icon:'chat'},
   {key:'members', label:'الأعضاء', icon:'members', adminOnly:true},
   {key:'settings', label:'الإعدادات', icon:'settings'}
@@ -2329,6 +2441,7 @@ function renderPage(){
   else if(state.activePage === 'reports') content.innerHTML = pageReports();
   else if(state.activePage === 'learning') content.innerHTML = pageLearning();
   else if(state.activePage === 'resources') content.innerHTML = pageResources();
+  else if(state.activePage === 'courses') content.innerHTML = pageCourses();
   else if(state.activePage === 'chat') content.innerHTML = pageChat();
   else if(state.activePage === 'members') content.innerHTML = pageMembers();
   else if(state.activePage === 'settings') content.innerHTML = pageSettings();
@@ -3052,15 +3165,12 @@ function renderResourcesTableHtml(cols, rows, isAdmin){
       <table class="res-table">
         <thead><tr>
           ${cols.map(c => `<th>${escapeHtml(c.label)}</th>`).join('')}
-          <th>أُضيف بواسطة</th>
           ${isAdmin ? '<th></th>' : ''}
         </tr></thead>
         <tbody>
           ${rows.map(r => {
-            const author = findUser(r.createdBy);
             return `<tr>
               ${cols.map(c => `<td class="res-cell-${c.type === 'note' ? 'note' : 'text'}">${resCellHtml(c, r.data ? r.data[c.key] : null)}</td>`).join('')}
-              <td>${escapeHtml(author ? author.name : '—')}</td>
               ${isAdmin ? `<td>
                 <div class="row-actions">
                   <button type="button" class="btn btn-ghost btn-sm edit-res-row-btn" data-id="${r.id}">${ICONS.edit} تعديل</button>
@@ -3177,6 +3287,179 @@ $('#resRowForm').addEventListener('submit', async (e) => {
     else await apiFetch('/resources', { method: 'POST', body: JSON.stringify({ data }) });
     toast(id ? 'تم تحديث المصدر' : 'تمت إضافة المصدر', 'ok');
     closeResourceRowModal();
+    await refreshData();
+    renderPage();
+  } catch (err) {
+    toast(err.message, 'err');
+  } finally {
+    setFormBusy(form, false);
+  }
+});
+
+/* ============================================================
+   PAGE: الكورسات — جدول مستقل تمامًا عن مصادر التعلم (v25)، بنفس فكرة
+   الأعمدة القابلة للتخصيص + صفوف بيانات. المدير يحدد العناوين وبعدين
+   يضيف الكورسات (روابط) بسرعة، وكل الأعضاء النشطين يشوفوها قراءة فقط
+   ============================================================ */
+function pageCourses(){
+  const isAdmin = state.currentUser.role === 'admin';
+  const cols = state.courseColumns.slice().sort((a,b) => a.order - b.order);
+  const rows = state.courses.slice().sort((a,b) => (b.createdAt||'').localeCompare(a.createdAt||''));
+
+  return `
+    <div class="page-head">
+      <div><h1>الكورسات</h1><p>${isAdmin ? 'جدول كورسات مشترك للفريق كله — ابنِ الأعمدة اللي تحتاجها (اسم الكورس، الرابط...) وأضف الكورسات' : 'كورسات ومراجع أضافها المدير للفريق كله'}</p></div>
+      ${isAdmin ? `<button class="btn btn-primary" id="openCourseRowModalBtn" ${!cols.length ? 'disabled title="أضف عمودًا واحدًا على الأقل أولًا"' : ''}>${ICONS.plus} إضافة كورس</button>` : ''}
+    </div>
+
+    ${isAdmin ? `
+    <div class="res-toolbar">
+      <button type="button" class="btn btn-ghost btn-sm" id="openCourseColModalBtn">${ICONS.plus} إضافة عمود</button>
+    </div>
+    ${cols.length ? `<div class="res-cols-list">${cols.map(c => `
+      <span class="res-col-tag">${escapeHtml(c.label)} <small style="opacity:.6">(${resColTypeLabel(c.type)})</small>
+        <button type="button" class="del-course-col-btn" data-id="${c.id}" title="حذف العمود">${ICONS.x}</button>
+      </span>`).join('')}</div>` : ''}
+    ` : ''}
+
+    <div id="coursesTableWrap">${renderCoursesTableHtml(cols, rows, isAdmin)}</div>
+  `;
+}
+
+function renderCoursesTableHtml(cols, rows, isAdmin){
+  if(!cols.length){
+    return emptyState('book', 'لا توجد أعمدة بعد', isAdmin ? 'ابدأ بإضافة أول عمود (مثال: اسم الكورس، رابط، الجهة المقدّمة)' : 'لسه المدير مابناش هذا الجدول');
+  }
+  if(!rows.length){
+    return emptyState('book', 'لا توجد كورسات بعد', isAdmin ? 'أضف أول كورس يفيد الفريق' : 'هيظهر هنا أي كورس يضيفه المدير');
+  }
+  return `
+    <div class="table-wrap">
+      <table class="res-table">
+        <thead><tr>
+          ${cols.map(c => `<th>${escapeHtml(c.label)}</th>`).join('')}
+          ${isAdmin ? '<th></th>' : ''}
+        </tr></thead>
+        <tbody>
+          ${rows.map(r => {
+            return `<tr>
+              ${cols.map(c => `<td class="res-cell-${c.type === 'note' ? 'note' : 'text'}">${resCellHtml(c, r.data ? r.data[c.key] : null)}</td>`).join('')}
+              ${isAdmin ? `<td>
+                <div class="row-actions">
+                  <button type="button" class="btn btn-ghost btn-sm edit-course-row-btn" data-id="${r.id}">${ICONS.edit} تعديل</button>
+                  <button type="button" class="btn btn-danger btn-sm del-course-row-btn" data-id="${r.id}">${ICONS.trash} حذف</button>
+                </div>
+              </td>` : ''}
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function openCourseColumnModal(){
+  $('#courseColForm').reset();
+  $('#courseColModalOverlay').classList.remove('hidden');
+}
+function closeCourseColumnModal(){ $('#courseColModalOverlay').classList.add('hidden'); }
+
+function buildCourseRowFields(existingData){
+  const cols = state.courseColumns.slice().sort((a,b) => a.order - b.order);
+  return cols.map(c => {
+    const val = existingData ? (existingData[c.key] ?? '') : '';
+    const inputType = c.type === 'link' ? 'url' : (c.type === 'date' ? 'date' : 'text');
+    if(c.type === 'note'){
+      return `<div class="form-row">
+        <label for="courseField_${c.key}">${escapeHtml(c.label)}</label>
+        <textarea id="courseField_${c.key}" data-key="${c.key}" class="course-field">${escapeHtml(val)}</textarea>
+      </div>`;
+    }
+    return `<div class="form-row">
+      <label for="courseField_${c.key}">${escapeHtml(c.label)}</label>
+      <input type="${inputType}" id="courseField_${c.key}" data-key="${c.key}" class="course-field" value="${escapeHtml(val)}">
+    </div>`;
+  }).join('');
+}
+
+function openCourseRowModal(id){
+  const row = id ? state.courses.find(r => r.id === id) : null;
+  $('#courseRowModalTitle').textContent = row ? 'تعديل الكورس' : 'إضافة كورس جديد';
+  $('#courseRowId').value = row ? row.id : '';
+  $('#courseRowFieldsWrap').innerHTML = buildCourseRowFields(row ? row.data : null);
+  $('#courseRowModalOverlay').classList.remove('hidden');
+}
+function closeCourseRowModal(){ $('#courseRowModalOverlay').classList.add('hidden'); }
+
+function bindCoursesEvents(){
+  const openColBtn = $('#openCourseColModalBtn');
+  if(openColBtn) openColBtn.addEventListener('click', openCourseColumnModal);
+
+  const openRowBtn = $('#openCourseRowModalBtn');
+  if(openRowBtn) openRowBtn.addEventListener('click', () => openCourseRowModal());
+
+  $$('.del-course-col-btn').forEach(btn => btn.addEventListener('click', async () => {
+    if(!confirm('حذف العمود هيشيل بياناته من كل الصفوف كمان. متأكد؟')) return;
+    try {
+      await apiFetch(`/course-columns/${btn.dataset.id}`, { method: 'DELETE' });
+      await refreshData();
+      renderPage();
+      toast('تم حذف العمود', 'ok');
+    } catch (err) { toast(err.message, 'err'); }
+  }));
+
+  $$('.edit-course-row-btn').forEach(btn => btn.addEventListener('click', () => openCourseRowModal(Number(btn.dataset.id))));
+
+  $$('.del-course-row-btn').forEach(btn => btn.addEventListener('click', async () => {
+    if(!confirm('هل تريد حذف هذا الكورس؟')) return;
+    try {
+      await apiFetch(`/courses/${btn.dataset.id}`, { method: 'DELETE' });
+      await refreshData();
+      renderPage();
+      toast('تم حذف الكورس', 'ok');
+    } catch (err) { toast(err.message, 'err'); }
+  }));
+}
+
+$('#courseColModalClose').addEventListener('click', closeCourseColumnModal);
+$('#courseColCancelBtn').addEventListener('click', closeCourseColumnModal);
+$('#courseColModalOverlay').addEventListener('click', (e) => { if(e.target.id === 'courseColModalOverlay') closeCourseColumnModal(); });
+
+$('#courseColForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const payload = { label: $('#courseColLabel').value.trim(), type: $('#courseColType').value };
+  if(!payload.label) return;
+  setFormBusy(form, true);
+  try {
+    await apiFetch('/course-columns', { method: 'POST', body: JSON.stringify(payload) });
+    toast('تمت إضافة العمود', 'ok');
+    closeCourseColumnModal();
+    await refreshData();
+    renderPage();
+  } catch (err) {
+    toast(err.message, 'err');
+  } finally {
+    setFormBusy(form, false);
+  }
+});
+
+$('#courseRowModalClose').addEventListener('click', closeCourseRowModal);
+$('#courseRowCancelBtn').addEventListener('click', closeCourseRowModal);
+$('#courseRowModalOverlay').addEventListener('click', (e) => { if(e.target.id === 'courseRowModalOverlay') closeCourseRowModal(); });
+
+$('#courseRowForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const data = {};
+  $$('.course-field', form).forEach(f => { data[f.dataset.key] = f.value.trim(); });
+  const id = $('#courseRowId').value;
+  setFormBusy(form, true);
+  try {
+    if(id) await apiFetch(`/courses/${id}`, { method: 'PUT', body: JSON.stringify({ data }) });
+    else await apiFetch('/courses', { method: 'POST', body: JSON.stringify({ data }) });
+    toast(id ? 'تم تحديث الكورس' : 'تمت إضافة الكورس', 'ok');
+    closeCourseRowModal();
     await refreshData();
     renderPage();
   } catch (err) {
@@ -3484,6 +3767,7 @@ function bindPageEvents(){
   if(state.activePage === 'reports') bindReportsEvents();
   if(state.activePage === 'learning') bindLearningEvents();
   if(state.activePage === 'resources') bindResourcesEvents();
+  if(state.activePage === 'courses') bindCoursesEvents();
   if(state.activePage === 'chat') bindChatEvents();
   if(state.activePage === 'members') bindMembersEvents();
   if(state.activePage === 'settings') bindSettingsEvents();
