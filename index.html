@@ -219,6 +219,15 @@
   .status-pill.picked-amber{border-color:var(--amber-500); background:var(--amber-100); color:var(--amber-600);}
   .status-pill.picked-red{border-color:var(--red-500); background:var(--red-100); color:var(--red-500);}
 
+  .day-pills{display:flex; gap:8px; flex-wrap:wrap;}
+  .day-pill{flex:1; min-width:150px; border:1.5px solid var(--border); border-radius:var(--radius-sm); padding:10px 12px; text-align:center; font-weight:700; font-size:13px; color:var(--text-400); background:#fff; opacity:.55; cursor:default;}
+  .day-pill small{display:block; font-weight:600; font-size:11.5px; margin-top:4px; color:inherit;}
+  .day-pill.pill-done{opacity:.85; border-color:var(--text-400); color:var(--text-600);}
+  .day-pill.active{opacity:1;}
+  .day-pill.active.pill-green{border-color:var(--green-500); background:var(--green-100); color:var(--green-500);}
+  .day-pill.active.pill-amber{border-color:var(--amber-500); background:var(--amber-100); color:var(--amber-600);}
+  .day-pill.active.pill-grey{border-color:var(--text-400); background:#f4f4f5; color:var(--text-600);}
+
   .timeline{display:flex; flex-direction:column; gap:14px;}
   .timeline-item{background:var(--surface); border:1px solid var(--border); border-left:4px solid var(--border); border-radius:var(--radius-md); padding:16px 18px;}
   .timeline-item.tl-green{border-left-color:var(--green-500);}
@@ -380,6 +389,8 @@
     .stat-grid{grid-template-columns:repeat(2,1fr);}
     .status-pills{flex-direction:column;}
     .status-pill{min-width:0;}
+    .day-pills{flex-direction:column;}
+    .day-pill{min-width:0;}
     .row-actions{flex-wrap:wrap;}
     .chat-bubble{max-width:88%;}
     .chat-main{height:70vh; min-height:380px;}
@@ -1737,6 +1748,21 @@ function formatDateWithDay(dateStr){
 }
 const GRACE_CUTOFF_HOUR = 16; // الموعد النهائي المطلق (قفل اليوم): بعده تقصير كامل مباشرة = الساعة 4 عصرًا من اليوم التالي
 const GRACE_LATE_START_HOUR = 13; // بداية نافذة "التأخير": قبلها التسجيل يعتبر على الوقت تمامًا رغم إنه في اليوم التالي = الساعة 1 ظهرًا
+/* بيرجّع كائن Date "بديل" بمكوّنات الوقت الفعلية بتوقيت القاهرة (Africa/Cairo)
+   لأي لحظة زمنية، بغض النظر عن توقيت جهاز/متصفح العضو نفسه — عشان
+   getFullYear()/getMonth()/getDate()/getHours() المستخدمة أصلًا في كل حسابات
+   نافذة المهلة (1 ظهرًا / 4 عصرًا) في نظام التقارير والتقصير تدّي نفس النتيجة
+   اللي السيرفر (الشغال بتوقيت القاهرة فعليًا) هيوصلها بالظبط، بدل ما تعتمد على
+   ضبط ساعة جهاز العضو (اللي ممكن يكون غلط أو على توقيت تاني). */
+function toCairoLocal(date){
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Africa/Cairo',
+    year:'numeric', month:'2-digit', day:'2-digit',
+    hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false
+  }).formatToParts(date);
+  const get = (t) => Number(parts.find(p => p.type === t).value);
+  return new Date(get('year'), get('month')-1, get('day'), get('hour')%24, get('minute'), get('second'));
+}
 function formatTime(isoDateTime){
   if(!isoDateTime) return '—';
   const d = new Date(isoDateTime);
@@ -1751,10 +1777,11 @@ function formatDateTime(isoDateTime){
 /* تقرير "متأخر" = اتسجل في اليوم التالي بعد الساعة 1 ظهرًا (ولسه قبل موعد القفل
    النهائي 4 عصرًا). لو اتسجل في اليوم التالي لكن قبل الساعة 1 ظهرًا → على الوقت
    تمامًا، صفر احتساب (سماحية). أي إن تاريخ الإنشاء الفعلي جاي بعد تاريخ اليوم
-   المنسوب له التقرير (عمود date، اللي بيتحدد تلقائيًا من السيرفر وقت الحفظ) */
+   المنسوب له التقرير (عمود date، اللي بيتحدد تلقائيًا من السيرفر وقت الحفظ)
+   — الحساب هنا بتوقيت القاهرة دايمًا (toCairoLocal)، مش توقيت جهاز العضو */
 function isReportLate(r){
   if(!r || !r.date || !r.createdAt) return false;
-  const created = new Date(r.createdAt);
+  const created = toCairoLocal(new Date(r.createdAt));
   const createdDateStr = created.getFullYear()+'-'+String(created.getMonth()+1).padStart(2,'0')+'-'+String(created.getDate()).padStart(2,'0');
   if(createdDateStr <= r.date) return false;
   return created.getHours() >= GRACE_LATE_START_HOUR;
@@ -1772,7 +1799,7 @@ function dailyBreakdownForUser(userId, monthDate){
     .sort();
   const postponeUntil = postponeDates.length ? postponeDates[postponeDates.length-1] : null;
 
-  const now = new Date();
+  const now = toCairoLocal(new Date());
   const cutoffPassed = now.getHours() >= GRACE_CUTOFF_HOUR;
   // آخر يوم "اتقفل" فعليًا (فات موعده النهائي: الساعة 4 عصرًا اليوم التالي له)
   const lastFinal = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (cutoffPassed ? 1 : 2));
@@ -1839,6 +1866,13 @@ function isFridayDate(dateStr){
   const [y,m,d] = dateStr.split('-').map(Number);
   return new Date(y, m-1, d).getDay() === 5;
 }
+/* "النهاردة" بتوقيت القاهرة الحقيقي (مش توقيت جهاز العضو) — تُستخدم فقط في
+   حسابات نافذة المهلة (1 ظهرًا/4 عصرًا)؛ باقي استخدامات todayStr() العادية
+   (زي تاريخ استحقاق مهمة) لم تتغيّر عمدًا لأنها خارج نطاق نظام التقصير. */
+function cairoTodayStr(){
+  const n = toCairoLocal(new Date());
+  return n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0');
+}
 /* هل السوبر أدمن ألغى يوم تقصير/تأخير معيّن لعضو معيّن؟ (v24) — لو نعم،
    اليوم بيتعامل معاه زي إجازة الجمعة بالظبط: مفيش أي احتساب عليه خالص */
 function isNegligenceDayForgiven(userId, dateStr){
@@ -1846,8 +1880,8 @@ function isNegligenceDayForgiven(userId, dateStr){
 }
 function predictedReportTarget(userId){
   const user = findUser(userId);
-  if(!user) return { date: todayStr(), late: false, holiday: isFridayDate(todayStr()) };
-  const now = new Date();
+  if(!user) return { date: cairoTodayStr(), late: false, holiday: isFridayDate(cairoTodayStr()) };
+  const now = toCairoLocal(new Date());
   const cutoffPassed = now.getHours() >= GRACE_CUTOFF_HOUR;
   const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
   const yStr = yesterday.getFullYear()+'-'+String(yesterday.getMonth()+1).padStart(2,'0')+'-'+String(yesterday.getDate()).padStart(2,'0');
@@ -1855,8 +1889,58 @@ function predictedReportTarget(userId){
   if(!cutoffPassed && yStr >= user.createdAt && !hasYesterdayReport){
     return { date: yStr, late: now.getHours() >= GRACE_LATE_START_HOUR, holiday: isFridayDate(yStr) };
   }
-  const t = todayStr();
+  const t = cairoTodayStr();
   return { date: t, late: false, holiday: isFridayDate(t) };
+}
+/* الأيام "المفتوحة" حاليًا لتسجيل تقرير، حسب نفس نظام المواعيد بالظبط
+   (نظام الظهور/الاختفاء): قبل الساعة 4 عصرًا يظهر يوم أمس + النهاردة،
+   بعد الساعة 4 عصرًا يختفي أمس ويفضل النهاردة بس. يوم واحد منهم بس هو
+   "الهدف الفعلي" اللي التقرير الجديد فعليًا هيتسجل عنه (زي ما السيرفر
+   بيحدده تلقائيًا في set_report_date_for_grace_window) — ده مش اختيار
+   حر من العضو، لكن العرض هنا بيوريه بوضوح قبل ما يحفظ.  */
+function openReportDaysInfo(userId){
+  const user = findUser(userId);
+  const now = toCairoLocal(new Date());
+  const cutoffPassed = now.getHours() >= GRACE_CUTOFF_HOUR;
+  const predicted = predictedReportTarget(userId);
+  const t = cairoTodayStr();
+  const days = [];
+  if(!cutoffPassed){
+    const y = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+    const yStr = y.getFullYear()+'-'+String(y.getMonth()+1).padStart(2,'0')+'-'+String(y.getDate()).padStart(2,'0');
+    if(!user || yStr >= user.createdAt){
+      days.push({
+        date: yStr,
+        target: predicted.date === yStr,
+        reported: state.reports.some(r => r.userId === userId && r.date === yStr),
+        holiday: isFridayDate(yStr)
+      });
+    }
+  }
+  days.push({
+    date: t,
+    target: predicted.date === t,
+    reported: state.reports.some(r => r.userId === userId && r.date === t),
+    holiday: isFridayDate(t)
+  });
+  return days;
+}
+function dayPillHtml(d, predicted){
+  let cls = 'day-pill';
+  let sub;
+  if(d.holiday){
+    cls += ' active pill-grey';
+    sub = '🌴 إجازة';
+  } else if(d.target){
+    cls += predicted.late ? ' active pill-amber' : ' active pill-green';
+    sub = predicted.late ? '⏰ الهدف الحالي — متأخر' : '📅 الهدف الحالي — على الوقت';
+  } else if(d.reported){
+    cls += ' pill-done';
+    sub = '✅ تم التسجيل عنه بالفعل';
+  } else {
+    sub = '⏸️ غير مفتوح للتسجيل الآن';
+  }
+  return `<div class="${cls}">${formatDateWithDay(d.date)}<small>${sub}</small></div>`;
 }
 function initials(name){
   if(!name) return '?';
@@ -2522,14 +2606,18 @@ function myReportSubmissionSection(){
   const myReports = userReports(state.currentUser.id).slice().sort((a,b) => b.date.localeCompare(a.date));
   const predicted = predictedReportTarget(state.currentUser.id);
 
+  const openDays = openReportDaysInfo(state.currentUser.id);
   return `
     <div class="card" style="padding:22px; margin-bottom:26px;">
       <h3 class="section-title">${ICONS.bulb} تقرير جديد</h3>
-      <div class="badge ${predicted.holiday ? 'badge-grey' : (predicted.late ? 'badge-amber' : 'badge-green')}" style="display:inline-flex; gap:6px; padding:10px 14px; font-size:13px; margin-bottom:14px;">
-        ${predicted.holiday ? '🌴' : (predicted.late ? '⏰' : '📅')} هذا التقرير هيتسجل عن يوم: <b>${formatDateWithDay(predicted.date)}</b>
-        ${predicted.holiday
-          ? ' — يوم إجازة، مفيش تقرير مطلوب فيه، وتسجيلك (لو حبيت) مش هياخد ولا يفقّد أي نقطة'
-          : (predicted.late ? ' — متأخر (آخر موعد لتسجيله الساعة 4 عصرًا النهارده)' : ' — على الوقت (في حدود سماحية اليوم التالي لحد الساعة 1 ظهرًا)')}
+      <div class="form-row">
+        <label>يوم التسجيل (يتحدد تلقائيًا حسب نظام المواعيد — 1 ظهرًا / 4 عصرًا)</label>
+        <div class="day-pills">${openDays.map(d => dayPillHtml(d, predicted)).join('')}</div>
+        <div style="font-size:12px; color:var(--text-400); margin-top:2px;">
+          ${predicted.holiday
+            ? '🌴 يوم إجازة، مفيش تقرير مطلوب فيه، وتسجيلك (لو حبيت) مش هياخد ولا يفقّد أي نقطة'
+            : (predicted.late ? '⏰ متأخر — آخر موعد لتسجيله الساعة 4 عصرًا النهارده' : '📅 على الوقت — في حدود سماحية اليوم التالي لحد الساعة 1 ظهرًا')}
+        </div>
       </div>
       <form id="reportForm">
         <div class="form-row">
