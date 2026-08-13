@@ -1229,6 +1229,13 @@ async function usersUpdateNegligenceExempt(id, exempt){
   if(error) throw new Error(error.message || 'تعذّر تحديث حالة الاستثناء');
   return { message: exempt ? `تم استثناء ${data.name} من احتساب التقصير` : `تم إلغاء استثناء ${data.name} من احتساب التقصير`, user: data };
 }
+/* تحديد/تغيير قسم العضو (لفلترة صفحة "الكورسات" له) — مقصور على أي
+   مدير نشط على مستوى قاعدة البيانات (guard_users_update من v30) */
+async function usersUpdateDepartment(id, departmentId){
+  const { data, error } = await sb.from('users').update({ departmentId: departmentId || null }).eq('id', id).select().single();
+  if(error) throw new Error(error.message || 'تعذّر تحديث قسم العضو');
+  return { message: `تم تحديث قسم ${data.name}`, user: data };
+}
 /* تعديل يدوي تراكمي لأيام التقصير (0 إلى 6) — مقصور على السوبر أدمن على
    مستوى قاعدة البيانات (increase_negligence/decrease_negligence من v26).
    بترجع العدّ الجديد فورًا من السيرفر عشان الواجهة تحدّثه على طول */
@@ -1507,6 +1514,7 @@ async function apiFetch(path, options = {}){
   if((m = path.match(/^\/users\/(\d+)\/toggle-status$/)) && method === 'PUT') return usersToggleStatus(Number(m[1]));
   if((m = path.match(/^\/users\/(\d+)\/role$/)) && method === 'PUT') return usersUpdateRole(Number(m[1]), body.role);
   if((m = path.match(/^\/users\/(\d+)\/negligence-exempt$/)) && method === 'PUT') return usersUpdateNegligenceExempt(Number(m[1]), !!body.exempt);
+  if((m = path.match(/^\/users\/(\d+)\/department$/)) && method === 'PUT') return usersUpdateDepartment(Number(m[1]), body.departmentId ? Number(body.departmentId) : null);
   if((m = path.match(/^\/users\/(\d+)\/negligence-increase$/)) && method === 'PUT') return negligenceIncrease(Number(m[1]));
   if((m = path.match(/^\/users\/(\d+)\/negligence-decrease$/)) && method === 'PUT') return negligenceDecrease(Number(m[1]));
   if(path === '/negligence-forgiven-days' && method === 'GET') return negligenceForgivenDaysList();
@@ -3450,12 +3458,26 @@ let courseFilterBranch = '';
 
 function pageCourses(){
   const isAdmin = state.currentUser.role === 'admin';
+  const myDept = !isAdmin ? courseCategoryLabelPlain(state.currentUser.departmentId) : null;
+  const subtitle = isAdmin
+    ? 'أضف روابط الكورسات هنا — كل عضو يشوف كورسات قسمه بس + الكورسات العامة'
+    : (myDept
+        ? `كورسات قسمك (${escapeHtml(myDept)}) + الكورسات العامة اللي أضافها المدير`
+        : 'لسه معندكش قسم محدد — هتشوف الكورسات العامة بس حاليًا، تواصل مع المدير لتحديد قسمك');
   return `
     <div class="page-head">
-      <div><h1>الكورسات</h1><p>${isAdmin ? 'أضف روابط الكورسات هنا — كل عضو نشط في الفريق يقدر يشوفها' : 'كورسات أضافها المدير للفريق كله'}</p></div>
+      <div><h1>الكورسات</h1><p>${subtitle}</p></div>
     </div>
     <div id="coursesTableWrap">${renderCoursesPageInnerHtml(isAdmin)}</div>
   `;
+}
+
+/* زي courseCategoryLabel بس بترجع نص عادي (من غير HTML) أو null لو
+   العضو لسه من غير قسم — مستخدمة في نص صفحة "الكورسات" بس */
+function courseCategoryLabelPlain(categoryId){
+  if(!categoryId) return null;
+  const cat = state.courseCategories.find(c => String(c.id) === String(categoryId));
+  return cat ? cat.title : null;
 }
 
 function renderCoursesPageInnerHtml(isAdmin){
@@ -3533,6 +3555,15 @@ function courseCategoryOptionsHtml(selectedId){
 function courseCategoryLabel(categoryId){
   const cat = state.courseCategories.find(c => String(c.id) === String(categoryId));
   return cat ? cat.title : '<span style="color:var(--text-400);">—</span>';
+}
+
+/* قائمة اختيار "قسم العضو" في صفحة الأعضاء — نفس أقسام الكورسات، من
+   غير خيار "+ إضافة قسم جديد" (ده بيتم من صفحة الكورسات بس) */
+function courseCategoryOptionsForMemberHtml(selectedId){
+  const opts = state.courseCategories.map(cat =>
+    `<option value="${cat.id}" ${String(cat.id) === String(selectedId) ? 'selected' : ''}>${escapeHtml(cat.title)}</option>`
+  ).join('');
+  return `<option value="">بدون قسم</option>${opts}`;
 }
 
 function courseRowHtml(c, isAdmin){
@@ -4044,7 +4075,7 @@ function pageMembers(){
       <div class="table-wrap">
         <table>
           <thead>
-            <tr><th>العضو</th><th>الصلاحية</th><th>المهام</th><th>آخر تسجيل تقرير</th><th>التقصير</th><th>الحالة</th><th>إجراءات</th></tr>
+            <tr><th>العضو</th><th>الصلاحية</th><th>القسم</th><th>المهام</th><th>آخر تسجيل تقرير</th><th>التقصير</th><th>الحالة</th><th>إجراءات</th></tr>
           </thead>
           <tbody>
             ${active.map(u => {
@@ -4065,6 +4096,11 @@ function pageMembers(){
                       <option value="admin" ${u.role==='admin'?'selected':''}>مدير</option>
                     </select>
                   ` : `<span style="font-size:12.5px;">${roleLabel(u)}</span>`}
+                </td>
+                <td>
+                  ${canManageTarget ? `
+                    <select class="dept-select" data-id="${u.id}" data-prev="${u.departmentId || ''}" aria-label="قسم العضو">${courseCategoryOptionsForMemberHtml(u.departmentId)}</select>
+                  ` : `<span style="font-size:12.5px;">${courseCategoryLabel(u.departmentId)}</span>`}
                 </td>
                 <td>${userTasks(u.id).length}</td>
                 <td>${lastReport ? `${formatDateTime(lastReport.createdAt)}${isReportLate(lastReport) ? ' <span class="badge badge-red">متأخر</span>' : ''}` : '<span style="color:var(--text-400);">لا يوجد</span>'}</td>
@@ -4470,6 +4506,20 @@ function bindMembersEvents(){
       toast(data.message || 'تم تحديث الصلاحية', 'ok');
     } catch (err) {
       sel.value = prevValue;
+      toast(err.message, 'err');
+    }
+  }));
+  $$('.dept-select').forEach(sel => sel.addEventListener('change', async () => {
+    const prevValue = sel.dataset.prev !== undefined ? sel.dataset.prev : '';
+    sel.disabled = true;
+    try {
+      const data = await apiFetch(`/users/${sel.dataset.id}/department`, { method: 'PUT', body: JSON.stringify({ departmentId: sel.value || null }) });
+      await refreshData();
+      renderPage();
+      toast(data.message || 'تم تحديث قسم العضو', 'ok');
+    } catch (err) {
+      sel.value = prevValue;
+      sel.disabled = false;
       toast(err.message, 'err');
     }
   }));
