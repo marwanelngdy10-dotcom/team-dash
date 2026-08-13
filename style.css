@@ -214,6 +214,7 @@
 
   .page-content{padding:28px; max-width:1180px; width:100%; margin:0 auto; animation:fadeIn .35s ease;}
   @keyframes fadeIn{from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:translateY(0);}}
+  .page-content-fade{animation:fadeIn .3s ease;}
   @keyframes riseIn{from{opacity:0; transform:translateY(10px);} to{opacity:1; transform:translateY(0);}}
   .stat-grid > .stat-card{animation:riseIn .4s cubic-bezier(.2,.8,.3,1) backwards;}
   .stat-grid > .stat-card:nth-of-type(1){animation-delay:.02s;}
@@ -486,3 +487,59 @@
     .stat-grid{grid-template-columns:1fr;}
   }
 @keyframes spin{to{transform:rotate(360deg);}}
+
+/* ============================================================
+   Skeleton Loading — هيكل تحميل بتأثير Shimmer بدل شاشة فاضية أثناء
+   أول تحميل لبيانات الصفحة (قبل ما البيانات توصل من السيرفر)
+   ============================================================ */
+@keyframes skelShimmer{
+  0%{background-position:200% 0;}
+  100%{background-position:-200% 0;}
+}
+.skel-bar{
+  height:14px; border-radius:6px; margin:8px 0;
+  background:linear-gradient(90deg, var(--border) 25%, var(--surface-2,rgba(255,255,255,.08)) 37%, var(--border) 63%);
+  background-size:400% 100%;
+  animation:skelShimmer 1.4s ease-in-out infinite;
+}
+.skel-card{
+  background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:18px 20px;
+}
+.skel-stat{ pointer-events:none; }
+.skel-stat::before{ display:none; }
+
+/* سبينر صغير جوه أزرار الإرسال أثناء الحفظ/التحميل */
+.btn-spinner{
+  display:inline-block; width:13px; height:13px; border-radius:50%;
+  border:2px solid rgba(255,255,255,.4); border-top-color:#fff;
+  animation:spin .7s linear infinite; vertical-align:middle; margin-inline-end:6px;
+}
+
+/* مؤشر قوة كلمة المرور */
+.pwd-strength{ margin-top:6px; min-height:18px; }
+.pwd-strength-bar{
+  height:5px; border-radius:4px; background:var(--border); overflow:hidden; margin-bottom:4px;
+}
+.pwd-strength-fill{ height:100%; border-radius:4px; transition:width .25s ease, background-color .25s ease; }
+.pwd-strength-label{ font-size:11.5px; font-weight:600; }
+
+/* ============================================================
+   طباعة / تصدير PDF — إخفاء عناصر التنقل والأزرار غير المهمة
+   وعرض المحتوى بشكل نظيف يصلح للطباعة أو الحفظ كـ PDF من المتصفح
+   (قائمة Print في المتصفح → Save as PDF)
+   ============================================================ */
+@media print{
+  .sidebar, .topbar, .theme-toggle-btn, .notif-bell-wrap, .hamburger,
+  .btn, button, .row-actions, .task-actions, .modal-overlay, .toast-container,
+  #sessionCheckOverlay{ display:none !important; }
+  .app-main{ margin:0 !important; }
+  .page-content{ padding:0 !important; }
+  body{ background:#fff !important; color:#000 !important; }
+  [data-theme] .stat-card, [data-theme] .card, [data-theme] table{
+    border-color:#ccc !important; box-shadow:none !important; background:#fff !important;
+  }
+  .stat-card::before{ display:none !important; }
+  table{ font-size:11px; }
+  .table-wrap{ overflow:visible !important; }
+  .timeline-item{ break-inside:avoid; }
+}

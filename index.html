@@ -113,9 +113,10 @@
         <div class="form-row">
           <label for="regPassword">كلمة المرور</label>
           <div class="pwd-field">
-            <input type="password" id="regPassword" required placeholder="اكتب كلمة المرور" autocomplete="new-password">
+            <input type="password" id="regPassword" required minlength="8" placeholder="8 أحرف على الأقل" autocomplete="new-password">
             <button type="button" class="pwd-toggle" data-target="regPassword" aria-label="إظهار كلمة المرور"></button>
           </div>
+          <div class="pwd-strength" id="regPasswordStrength"></div>
         </div>
         <div class="form-row">
           <label for="regPassword2">تأكيد كلمة المرور</label>
@@ -171,9 +172,10 @@
         <div class="form-row">
           <label for="recNewPass">كلمة المرور الجديدة</label>
           <div class="pwd-field">
-            <input type="password" id="recNewPass" required>
+            <input type="password" id="recNewPass" required minlength="8" placeholder="8 أحرف على الأقل">
             <button type="button" class="pwd-toggle" data-target="recNewPass" aria-label="إظهار كلمة المرور"></button>
           </div>
+          <div class="pwd-strength" id="recNewPassStrength"></div>
         </div>
         <div class="form-row">
           <label for="recNewPass2">تأكيد كلمة المرور</label>
@@ -296,9 +298,10 @@
         <div class="form-row">
           <label for="memPassword">كلمة مرور مبدئية</label>
           <div class="pwd-field">
-            <input type="password" id="memPassword" required>
+            <input type="password" id="memPassword" required minlength="8" placeholder="8 أحرف على الأقل">
             <button type="button" class="pwd-toggle" data-target="memPassword" aria-label="إظهار كلمة المرور"></button>
           </div>
+          <div class="pwd-strength" id="memPasswordStrength"></div>
         </div>
         <div class="form-row">
           <label for="memRole">الصلاحية</label>
@@ -405,9 +408,10 @@
         <div class="form-row">
           <label for="resetPwdNew">كلمة المرور الجديدة</label>
           <div class="pwd-field">
-            <input type="password" id="resetPwdNew" required>
+            <input type="password" id="resetPwdNew" required minlength="8" placeholder="8 أحرف على الأقل">
             <button type="button" class="pwd-toggle" data-target="resetPwdNew" aria-label="إظهار كلمة المرور"></button>
           </div>
+          <div class="pwd-strength" id="resetPwdNewStrength"></div>
         </div>
         <div class="modal-foot">
           <button type="button" class="btn btn-ghost" id="resetPwdCancelBtn">إلغاء</button>

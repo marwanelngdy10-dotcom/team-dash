@@ -31,7 +31,9 @@ const ICONS = {
   grad:`<svg class="icon" viewBox="0 0 24 24"><path d="M2 9.5 12 5l10 4.5-10 4.5-10-4.5Z"/><path d="M6 11.5V17c0 1.4 2.7 3 6 3s6-1.6 6-3v-5.5"/><path d="M21 9.5V16"/></svg>`,
   trophy:`<svg class="icon" viewBox="0 0 24 24"><path d="M7 4h10v5a5 5 0 0 1-10 0V4Z"/><path d="M7 5H4a3 3 0 0 0 3 5"/><path d="M17 5h3a3 3 0 0 1-3 5"/><path d="M12 14v3"/><path d="M8 20h8"/><path d="M9.5 17h5l.7 3h-6.4l.7-3Z"/></svg>`,
   sun:`<svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2"/><line x1="12" y1="1.5" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="22.5"/><line x1="4.2" y1="4.2" x2="6" y2="6"/><line x1="18" y1="18" x2="19.8" y2="19.8"/><line x1="1.5" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="22.5" y2="12"/><line x1="4.2" y1="19.8" x2="6" y2="18"/><line x1="18" y1="6" x2="19.8" y2="4.2"/></svg>`,
-  moon:`<svg class="icon" viewBox="0 0 24 24"><path d="M20.5 14.8A8.5 8.5 0 1 1 9.2 3.5a7 7 0 0 0 11.3 11.3Z"/></svg>`
+  moon:`<svg class="icon" viewBox="0 0 24 24"><path d="M20.5 14.8A8.5 8.5 0 1 1 9.2 3.5a7 7 0 0 0 11.3 11.3Z"/></svg>`,
+  download:`<svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M12 3v13"/><polyline points="7 11 12 16 17 11"/><path d="M4 20h16"/></svg>`,
+  printer:`<svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M6 9V3h12v6"/><rect x="4" y="9" width="16" height="8" rx="1.5"/><path d="M6 17v4h12v-4"/></svg>`
 };
 
 /* ============================================================
@@ -726,7 +728,8 @@ const state = {
   courses: [],
   courseCategories: [],
   notifications: [],
-  negligenceForgivenDays: []
+  negligenceForgivenDays: [],
+  dataLoaded: false
 };
 
 /* يجلب البيانات المطلوبة لعرض الصفحة الحالية من الباك إند */
@@ -908,6 +911,28 @@ document.addEventListener('click', (e) => {
 const $ = (sel, ctx) => (ctx||document).querySelector(sel);
 const $$ = (sel, ctx) => Array.from((ctx||document).querySelectorAll(sel));
 const escapeHtml = (str) => String(str==null?'':str).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+
+/* ============================================================
+   تصدير بيانات لملف Excel (CSV) — بيفتح مباشرة في Excel أو Google Sheets.
+   rows: مصفوفة مصفوفات (كل مصفوفة داخلية = صف)، أول صف = عناوين الأعمدة.
+   ============================================================ */
+function exportToCSV(filename, rows){
+  const csvEscape = (val) => {
+    const s = String(val == null ? '' : val);
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const csvContent = rows.map(row => row.map(csvEscape).join(',')).join('\r\n');
+  /* BOM في البداية عشان Excel يقرأ الحروف العربية صح */
+  const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename.endsWith('.csv') ? filename : filename + '.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 function todayStr(){
   const d = new Date();
@@ -1246,10 +1271,10 @@ function setFormBusy(form, busy){
   if(!btn) return;
   btn.disabled = busy;
   if(busy){
-    btn.dataset.originalText = btn.dataset.originalText || btn.textContent;
-    btn.textContent = 'يرجى الانتظار...';
-  } else if(btn.dataset.originalText){
-    btn.textContent = btn.dataset.originalText;
+    btn.dataset.originalHtml = btn.dataset.originalHtml || btn.innerHTML;
+    btn.innerHTML = `<span class="btn-spinner"></span> يرجى الانتظار...`;
+  } else if(btn.dataset.originalHtml){
+    btn.innerHTML = btn.dataset.originalHtml;
   }
 }
 
@@ -1290,6 +1315,7 @@ $('#registerForm').addEventListener('submit', async (e) => {
   if(!/^[A-Za-z0-9_.]{3,30}$/.test(username)){ showFormMsg('#registerMsg','اسم المستخدم لازم يكون حروف إنجليزية/أرقام فقط (من غير @ أو مسافات)، من 3 لـ30 حرف.', 'err'); return; }
   if(!/^[0-9]{11}$/.test(phone)){ showFormMsg('#registerMsg','رقم الهاتف لازم يكون 11 رقم بالظبط.', 'err'); return; }
   if(!pass){ showFormMsg('#registerMsg','يرجى كتابة كلمة المرور.', 'err'); return; }
+  if(pass.length < 8){ showFormMsg('#registerMsg','كلمة المرور لازم تكون 8 أحرف على الأقل.', 'err'); return; }
   if(pass !== pass2){ showFormMsg('#registerMsg','كلمتا المرور غير متطابقتين.', 'err'); return; }
 
   setFormBusy(form, true);
@@ -1350,6 +1376,7 @@ $('#recoverySetPwdForm').addEventListener('submit', async (e) => {
   const p1 = $('#recNewPass').value;
   const p2 = $('#recNewPass2').value;
   if(!p1){ showFormMsg('#recoverySetPwdMsg', 'يرجى كتابة كلمة المرور الجديدة.', 'err'); return; }
+  if(p1.length < 8){ showFormMsg('#recoverySetPwdMsg', 'كلمة المرور لازم تكون 8 أحرف على الأقل.', 'err'); return; }
   if(p1 !== p2){ showFormMsg('#recoverySetPwdMsg', 'كلمتا المرور غير متطابقتين.', 'err'); return; }
   setFormBusy(form, true);
   try {
@@ -1392,6 +1419,7 @@ async function logout(){
   state.courseCategories = [];
   state.notifications = [];
   state.negligenceForgivenDays = [];
+  state.dataLoaded = false;
   $('#appScreen').classList.add('hidden');
   $('#authScreen').classList.remove('hidden');
   switchAuthTab('login');
@@ -1410,6 +1438,44 @@ document.addEventListener('click', (e) => {
   btn.setAttribute('aria-label', isPwd ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور');
 });
 $$('.pwd-toggle').forEach(btn => btn.innerHTML = ICONS.eye);
+
+/* ============================================================
+   مؤشر قوة كلمة المرور — بيشتغل تلقائيًا على أي حقل type="password"
+   له عنصر مؤشر مجاور بـ id = <id-الحقل>+"Strength" (زي regPasswordStrength
+   لحقل regPassword). مفيش داعي لربط يدوي في كل فورم — مفوّض (delegated)
+   على مستوى المستند كله، فبيشتغل حتى مع الفورمات اللي بترندر ديناميكيًا.
+   ============================================================ */
+function passwordStrengthScore(pwd){
+  if(!pwd) return 0;
+  let score = 0;
+  if(pwd.length >= 8) score++;
+  if(pwd.length >= 12) score++;
+  if(/[a-z]/.test(pwd) && /[A-Z]/.test(pwd)) score++;
+  if(/[0-9]/.test(pwd)) score++;
+  if(/[^A-Za-z0-9]/.test(pwd)) score++;
+  return Math.min(score, 4);
+}
+const PASSWORD_STRENGTH_INFO = [
+  { label:'ضعيفة جدًا', color:'var(--red-500)' },
+  { label:'ضعيفة', color:'var(--red-500)' },
+  { label:'متوسطة', color:'var(--amber-500)' },
+  { label:'قوية', color:'var(--green-500)' },
+  { label:'قوية جدًا', color:'#17b37e' }
+];
+document.addEventListener('input', (e) => {
+  const input = e.target;
+  if(!(input.tagName === 'INPUT' && input.type === 'password')) return;
+  const meter = document.getElementById(input.id + 'Strength');
+  if(!meter) return;
+  const pwd = input.value;
+  if(!pwd){ meter.innerHTML = ''; return; }
+  const score = passwordStrengthScore(pwd);
+  const info = PASSWORD_STRENGTH_INFO[score];
+  meter.innerHTML = `
+    <div class="pwd-strength-bar"><div class="pwd-strength-fill" style="width:${(score+1)*20}%; background:${info.color};"></div></div>
+    <span class="pwd-strength-label" style="color:${info.color};">${info.label}${pwd.length < 8 ? ' — لازم 8 أحرف على الأقل' : ''}</span>
+  `;
+});
 
 /* ============================================================
    APP SHELL — التنقل والقائمة الجانبية
@@ -1436,7 +1502,9 @@ async function enterApp(showWelcome){
   $('#appScreen').classList.remove('hidden');
   state.activePage = resolveActivePage();
   // نرسم الواجهة فورًا (حتى لو فاضية أول مرة) بدل ما ننتظر كل طلبات
-  // البيانات تخلص الأول — كده المستخدم يشوف الموقع فتح فعلًا بسرعة
+  // البيانات تخلص الأول — كده المستخدم يشوف الموقع فتح فعلًا بسرعة.
+  // أول مرة (لسه مفيش بيانات في الكاش) بنعرض هيكل تحميل (Skeleton)
+  // بدل ما نعرض "لا توجد بيانات" وهمي لحد ما البيانات توصل فعلًا.
   renderSidebar();
   renderTopbar();
   renderPage();
@@ -1445,6 +1513,7 @@ async function enterApp(showWelcome){
   } catch (err) {
     toast(err.message, 'err');
   }
+  state.dataLoaded = true;
   startPresence();
   initNotifications();
   initPushSubscription();
@@ -1713,6 +1782,13 @@ function closeSidebarMobile(){
 function renderPage(){
   if(state.activePage !== 'chat') stopChatPolling();
   const content = $('#pageContent');
+  content.classList.remove('page-content-fade');
+  void content.offsetWidth;
+  content.classList.add('page-content-fade');
+  if(!state.dataLoaded){
+    content.innerHTML = skeletonPageHtml(state.activePage);
+    return;
+  }
   if(state.activePage === 'tasks') content.innerHTML = pageTasks();
   else if(state.activePage === 'reports') content.innerHTML = pageReports();
   else if(state.activePage === 'team') content.innerHTML = pageTeamOverview();
@@ -1723,6 +1799,56 @@ function renderPage(){
   else if(state.activePage === 'members') content.innerHTML = pageMembers();
   else if(state.activePage === 'settings') content.innerHTML = pageSettings();
   bindPageEvents();
+}
+
+/* ============================================================
+   Skeleton Loading — هيكل تحميل بسيط بدل شاشة فاضية أو "لا توجد
+   بيانات" وهمية وقت أول تحميل للبيانات (قبل ما refreshData يخلص)
+   ============================================================ */
+function skeletonBar(width){
+  return `<div class="skel-bar" style="width:${width}"></div>`;
+}
+function skeletonCard(){
+  return `<div class="skel-card">${skeletonBar('40%')}${skeletonBar('70%')}${skeletonBar('55%')}</div>`;
+}
+function skeletonStatGrid(count){
+  return `<div class="stat-grid">${Array.from({length:count}, () => `
+    <div class="stat-card skel-stat"><div class="skel-bar" style="width:35%;height:22px;margin-bottom:8px;"></div><div class="skel-bar" style="width:60%;height:11px;"></div></div>
+  `).join('')}</div>`;
+}
+function skeletonTable(rows){
+  return `<div class="table-wrap"><table><tbody>${Array.from({length:rows}, () => `
+    <tr><td colspan="4"><div class="skel-bar" style="width:100%;height:14px;"></div></td></tr>
+  `).join('')}</tbody></table></div>`;
+}
+function skeletonPageHtml(page){
+  const titleWidths = { tasks:'المهام', reports:'التقارير', team:'متابعة الفريق', learning:'التعليم', resources:'مصادر التعلم', courses:'الكورسات', chat:'الشات', members:'الأعضاء', settings:'الإعدادات' };
+  const title = titleWidths[page] || '';
+  if(page === 'team'){
+    return `
+      <div class="page-head"><div><h1>${title}</h1><div class="skel-bar" style="width:220px;margin-top:8px;"></div></div></div>
+      ${skeletonStatGrid(6)}
+      <div class="section-block">${skeletonCard()}${skeletonTable(4)}</div>
+    `;
+  }
+  if(page === 'reports'){
+    return `
+      <div class="page-head"><div><h1>${title}</h1><div class="skel-bar" style="width:260px;margin-top:8px;"></div></div></div>
+      ${skeletonStatGrid(4)}
+      <div class="section-block">${skeletonCard()}</div>
+      <div class="section-block">${skeletonTable(5)}</div>
+    `;
+  }
+  if(page === 'chat'){
+    return `
+      <div class="page-head"><div><h1>${title}</h1></div></div>
+      <div class="card" style="padding:20px;">${skeletonBar('30%')}${skeletonBar('55%')}${skeletonBar('40%')}${skeletonBar('60%')}</div>
+    `;
+  }
+  return `
+    <div class="page-head"><div><h1>${title}</h1><div class="skel-bar" style="width:200px;margin-top:8px;"></div></div></div>
+    <div class="grid-cards">${skeletonCard()}${skeletonCard()}${skeletonCard()}</div>
+  `;
 }
 
 /* ============================================================
@@ -2053,11 +2179,15 @@ function reportsAdminView(){
     <div class="section-block">
       <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
         <h3 class="section-title" style="margin:0;">أيام التقصير والانتظام في التسجيل</h3>
-        <div class="form-row" style="max-width:220px; margin:0;">
-          <label for="reportsMonthSelect">الشهر</label>
-          <select id="reportsMonthSelect">
-            ${Array.from({length:6}, (_,i) => `<option value="${i}" ${i===reportsMonthOffset?'selected':''}>${monthOffsetLabel(i)}</option>`).join('')}
-          </select>
+        <div style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;">
+          <div class="form-row" style="max-width:220px; margin:0;">
+            <label for="reportsMonthSelect">الشهر</label>
+            <select id="reportsMonthSelect">
+              ${Array.from({length:6}, (_,i) => `<option value="${i}" ${i===reportsMonthOffset?'selected':''}>${monthOffsetLabel(i)}</option>`).join('')}
+            </select>
+          </div>
+          <button type="button" class="btn btn-ghost" id="exportNegligenceCsvBtn">${ICONS.download || ''} تصدير Excel</button>
+          <button type="button" class="btn btn-ghost" id="printReportsBtn">${ICONS.printer || ''} طباعة / PDF</button>
         </div>
       </div>
       <p style="color:var(--text-600); font-size:13px; margin-top:8px;">
@@ -2158,6 +2288,9 @@ function reportsAdminView(){
         </div>
         <div class="form-row" style="align-self:flex-end;">
           <button type="button" class="btn btn-ghost" id="reportFilterClear">إلغاء التصفية</button>
+        </div>
+        <div class="form-row" style="align-self:flex-end;">
+          <button type="button" class="btn btn-ghost" id="exportReportsCsvBtn">${ICONS.download || ''} تصدير Excel</button>
         </div>
       </div>
       <div id="adminReportsList"></div>
@@ -3156,6 +3289,7 @@ function pageTeamOverview(){
   return `
     <div class="page-head">
       <div><h1>متابعة الفريق</h1><p>نظرة عامة على أداء الفريق: النقاط، المهام، التعلم، والانتظام في التقارير</p></div>
+      <button type="button" class="btn btn-ghost" id="printTeamBtn">${ICONS.printer || ''} طباعة / PDF</button>
     </div>
 
     <div class="stat-grid cols-6">
@@ -3188,7 +3322,10 @@ function pageTeamOverview(){
     </div>
 
     <div class="section-block">
-      <h3 class="section-title">تفاصيل كل عضو</h3>
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+        <h3 class="section-title" style="margin:0;">تفاصيل كل عضو</h3>
+        <button type="button" class="btn btn-ghost" id="exportTeamCsvBtn">${ICONS.download || ''} تصدير Excel</button>
+      </div>
       <div class="table-wrap">
         <table>
           <thead>
@@ -3356,7 +3493,8 @@ function pageSettings(){
           </div>
           <div class="form-row">
             <label for="newPass">كلمة المرور الجديدة</label>
-            <div class="pwd-field"><input type="password" id="newPass" required><button type="button" class="pwd-toggle" data-target="newPass"></button></div>
+            <div class="pwd-field"><input type="password" id="newPass" required minlength="8" placeholder="8 أحرف على الأقل"><button type="button" class="pwd-toggle" data-target="newPass"></button></div>
+            <div class="pwd-strength" id="newPassStrength"></div>
           </div>
           <div class="form-row">
             <label for="confirmPass">تأكيد كلمة المرور الجديدة</label>
@@ -3389,6 +3527,45 @@ function bindPageEvents(){
   if(state.activePage === 'chat') bindChatEvents();
   if(state.activePage === 'members') bindMembersEvents();
   if(state.activePage === 'settings') bindSettingsEvents();
+  if(state.activePage === 'team') bindTeamEvents();
+}
+
+function bindTeamEvents(){
+  const printBtn = $('#printTeamBtn');
+  if(printBtn) printBtn.addEventListener('click', () => window.print());
+  const exportBtn = $('#exportTeamCsvBtn');
+  if(!exportBtn) return;
+  exportBtn.addEventListener('click', () => {
+    const now = new Date();
+    const monthStartStr = now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-01';
+    const viewerIsSuperT = !!(state.currentUser && state.currentUser.isSuperAdmin);
+    const membersT = viewerIsSuperT
+      ? state.users.filter(u => !u.isSuperAdmin && u.status === 'active')
+      : state.users.filter(u => u.role === 'member' && u.status === 'active');
+    const rowsT = membersT.map(u => {
+      const tasks = userTasks(u.id);
+      const learning = userLearningItems(u.id);
+      return {
+        name: u.name,
+        points: Number(u.points) || 0,
+        tasksDone: tasks.filter(t=>t.status==='مكتملة').length,
+        tasksTotal: tasks.length,
+        learningDone: learning.filter(l=>l.status==='تم التعلم').length,
+        learningTotal: learning.length,
+        reportsMonth: userReports(u.id).filter(r => r.date >= monthStartStr).length,
+        negligence: u.negligenceExempt ? null : monthlyNegligentDays(u.id, now).days
+      };
+    }).sort((a,b) => b.points - a.points);
+    const csvRows = [
+      ['العضو', 'النقاط', 'المهام المكتملة', 'إجمالي المهام', 'مواد التعلم المكتملة', 'إجمالي مواد التعلم', 'تقارير هذا الشهر', 'أيام التقصير'],
+      ...rowsT.map(r => [
+        r.name, r.points, r.tasksDone, r.tasksTotal, r.learningDone, r.learningTotal, r.reportsMonth,
+        r.negligence === null ? 'مستثنى' : r.negligence
+      ])
+    ];
+    exportToCSV('متابعة-الفريق', csvRows);
+    toast('تم تصدير الملف', 'ok');
+  });
 }
 
 function bindTasksEvents(){
@@ -3568,6 +3745,30 @@ function bindReportsEvents(){
       reportsMonthOffset = Number(monthSel.value) || 0;
       renderPage();
     });
+    const exportNegBtn = $('#exportNegligenceCsvBtn');
+    if(exportNegBtn) exportNegBtn.addEventListener('click', () => {
+      const viewerIsSuperExp = !!(state.currentUser && state.currentUser.isSuperAdmin);
+      const membersExp = viewerIsSuperExp
+        ? state.users.filter(u => !u.isSuperAdmin)
+        : state.users.filter(u => u.role === 'member');
+      const monthExp = monthOffsetDate(reportsMonthOffset);
+      const rowsExp = membersExp
+        .map(m => ({ id:m.id, name:m.name, role:m.role, exempt: !!m.negligenceExempt, ...monthlyNegligentDays(m.id, monthExp) }))
+        .sort((a,b) => b.days - a.days);
+      const csvRows = [
+        ['العضو', 'الدور', 'أيام التقصير', 'الحالة'],
+        ...rowsExp.map(r => [
+          r.name,
+          r.role === 'admin' ? 'مدير' : 'عضو',
+          r.exempt ? 'مستثنى' : r.days,
+          r.exempt ? 'مستثنى من الاحتساب' : (r.days>=6 ? 'سيتم إيقافه' : r.days>=3 ? 'تحذير' : 'منتظم')
+        ])
+      ];
+      exportToCSV(`تقصير-${monthOffsetLabel(reportsMonthOffset)}`, csvRows);
+      toast('تم تصدير الملف', 'ok');
+    });
+    const printBtn = $('#printReportsBtn');
+    if(printBtn) printBtn.addEventListener('click', () => window.print());
     $$('.neg-details-btn').forEach(btn => btn.addEventListener('click', () => {
       const id = Number(btn.dataset.id);
       expandedNegligenceUserId = expandedNegligenceUserId === id ? null : id;
@@ -3605,6 +3806,29 @@ function bindReportsEvents(){
     if(clearBtn) clearBtn.addEventListener('click', () => {
       filterSel.value = 'all'; dateInput.value = '';
       renderAdminReportsList('all');
+    });
+    const exportReportsBtn = $('#exportReportsCsvBtn');
+    if(exportReportsBtn) exportReportsBtn.addEventListener('click', () => {
+      let filtered = state.reports;
+      if(filterSel && filterSel.value !== 'all') filtered = filtered.filter(r => String(r.userId) === String(filterSel.value));
+      if(dateInput && dateInput.value) filtered = filtered.filter(r => r.date === dateInput.value);
+      const sorted = filtered.slice().sort((a,b) => (b.createdAt||'').localeCompare(a.createdAt||''));
+      const csvRows = [
+        ['العضو', 'يوم التقرير', 'الحالة', 'الوصف', 'وقت التسجيل', 'ملاحظة المدير'],
+        ...sorted.map(r => {
+          const author = findUser(r.userId);
+          return [
+            author ? author.name : '',
+            formatDateWithDay(r.date),
+            r.status,
+            r.description || '',
+            formatDateTime(r.createdAt),
+            r.managerNote || ''
+          ];
+        })
+      ];
+      exportToCSV('تقارير-الفريق', csvRows);
+      toast('تم تصدير الملف', 'ok');
     });
   }
 }
@@ -3752,10 +3976,12 @@ $('#memberForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const form = e.target;
   const email = $('#memEmail').value.trim().toLowerCase();
+  const memPass = $('#memPassword').value;
+  if(memPass.length < 8){ toast('كلمة المرور لازم تكون 8 أحرف على الأقل', 'err'); return; }
   const payload = {
     name: $('#memName').value.trim(),
     email,
-    password: $('#memPassword').value,
+    password: memPass,
     role: $('#memRole').value
   };
   setFormBusy(form, true);
@@ -3791,6 +4017,7 @@ $('#resetPwdForm').addEventListener('submit', async (e) => {
   const form = e.target;
   if(!resetPwdTargetId) return;
   const newPassword = $('#resetPwdNew').value;
+  if(newPassword.length < 8){ toast('كلمة المرور لازم تكون 8 أحرف على الأقل', 'err'); return; }
   setFormBusy(form, true);
   try {
     const data = await usersResetPassword(resetPwdTargetId, newPassword);
@@ -3856,6 +4083,7 @@ function bindSettingsEvents(){
     const form = e.target;
     const cur = $('#curPass').value, nw = $('#newPass').value, cf = $('#confirmPass').value;
     if(!nw){ toast('يرجى كتابة كلمة المرور الجديدة', 'err'); return; }
+    if(nw.length < 8){ toast('كلمة المرور الجديدة لازم تكون 8 أحرف على الأقل', 'err'); return; }
     if(nw !== cf){ toast('كلمتا المرور الجديدتان غير متطابقتين', 'err'); return; }
     setFormBusy(form, true);
     try {
