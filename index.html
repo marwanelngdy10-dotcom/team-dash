@@ -7,14 +7,14 @@
 (function(){
   try{
     var t = localStorage.getItem('itqan_theme');
-    if(!t) t = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+    if(!t) t = 'light';
     document.documentElement.setAttribute('data-theme', t);
   }catch(e){}
 })();
 </script>
 <title>IT_qan — منصة إدارة الفريق</title>
 <link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#0B1226">
+<meta name="theme-color" content="#F2F4FA">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -255,6 +255,11 @@
   .page-head p{margin:0; color:var(--text-600); font-size:14px;}
 
   .stat-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:16px; margin-bottom:26px;}
+  .stat-grid.cols-3{grid-template-columns:repeat(3,1fr);}
+  .stat-grid.cols-6{grid-template-columns:repeat(6,1fr); gap:10px;}
+  .stat-grid.cols-6 .stat-card{padding:12px 10px; border-radius:12px;}
+  .stat-grid.cols-6 .stat-num{font-size:19px;}
+  .stat-grid.cols-6 .stat-label{font-size:10.5px; margin-top:2px;}
   .stat-card{
     background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:18px 20px;
     position:relative; overflow:hidden; transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease;
@@ -457,6 +462,7 @@
     .auth-card{max-width:440px;}
     .grid-cards{grid-template-columns:1fr;}
     .stat-grid{grid-template-columns:repeat(2,1fr);}
+    .stat-grid.cols-6{grid-template-columns:repeat(3,1fr);}
     .chat-shell{flex-direction:column;}
     .chat-sidebar{width:100%; flex-direction:row; overflow-x:auto; overflow-y:hidden; max-height:none; -webkit-overflow-scrolling:touch; padding-bottom:6px;}
     .chat-target-btn{width:auto; flex-shrink:0; white-space:nowrap;}
@@ -491,6 +497,7 @@
     .approval-card .row-actions{width:100%;}
     .approval-card .row-actions .btn{flex:1;}
     .stat-grid{grid-template-columns:repeat(2,1fr);}
+    .stat-grid.cols-6{grid-template-columns:repeat(2,1fr);}
     .status-pills{flex-direction:column;}
     .status-pill{min-width:0;}
     .day-pills{flex-direction:column;}
@@ -2561,7 +2568,7 @@ function applyTheme(theme){
   document.documentElement.setAttribute('data-theme', theme);
   try{ localStorage.setItem('itqan_theme', theme); }catch(e){}
   const meta = document.querySelector('meta[name="theme-color"]');
-  if(meta) meta.setAttribute('content', theme === 'dark' ? '#0A0E1C' : '#0B1226');
+  if(meta) meta.setAttribute('content', theme === 'dark' ? '#0A0E1C' : '#F2F4FA');
   const btn = $('#themeToggleBtn');
   if(btn){
     btn.innerHTML = theme === 'dark' ? ICONS.sun : ICONS.moon;
@@ -4112,7 +4119,7 @@ function pageTeamOverview(){
       <div><h1>متابعة الفريق</h1><p>نظرة عامة على أداء الفريق: النقاط، المهام، التعلم، والانتظام في التقارير</p></div>
     </div>
 
-    <div class="stat-grid">
+    <div class="stat-grid cols-6">
       <div class="stat-card"><div class="stat-num">${members.length}</div><div class="stat-label">أعضاء نشطون</div></div>
       <div class="stat-card"><div class="stat-num">${totalPoints}</div><div class="stat-label">إجمالي نقاط الفريق</div></div>
       <div class="stat-card"><div class="stat-num">${totalTasks ? Math.round(doneTasks/totalTasks*100) : 0}%</div><div class="stat-label">نسبة إكمال المهام</div></div>
