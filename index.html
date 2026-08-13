@@ -753,6 +753,10 @@
           <label for="learningLink">رابط (اختياري)</label>
           <input type="url" id="learningLink" placeholder="https://...">
         </div>
+        <div class="form-row">
+          <label for="learningTrack">المسار (اختياري — لتجميع مواد التعلم المتتابعة، مثال: "مسار SEO")</label>
+          <input type="text" id="learningTrack" placeholder="مثال: مسار SEO">
+        </div>
         <div class="modal-foot">
           <button type="button" class="btn btn-ghost" id="learningCancelBtn">إلغاء</button>
           <button type="submit" class="btn btn-primary">حفظ مادة التعلم</button>
@@ -873,7 +877,8 @@ const ICONS = {
   chat:`<svg class="icon" viewBox="0 0 24 24"><path d="M4 4h16v12H8l-4 4V4Z"/><line x1="8" y1="9" x2="16" y2="9"/><line x1="8" y1="13" x2="13" y2="13"/></svg>`,
   book:`<svg class="icon" viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5Z"/><path d="M4 5.5v15A2.5 2.5 0 0 1 6.5 18H20"/></svg>`,
   bell:`<svg class="icon" viewBox="0 0 24 24"><path d="M6 9a6 6 0 0 1 12 0c0 4.5 1.5 6 2 6.5H4c.5-.5 2-2 2-6.5Z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>`,
-  grad:`<svg class="icon" viewBox="0 0 24 24"><path d="M2 9.5 12 5l10 4.5-10 4.5-10-4.5Z"/><path d="M6 11.5V17c0 1.4 2.7 3 6 3s6-1.6 6-3v-5.5"/><path d="M21 9.5V16"/></svg>`
+  grad:`<svg class="icon" viewBox="0 0 24 24"><path d="M2 9.5 12 5l10 4.5-10 4.5-10-4.5Z"/><path d="M6 11.5V17c0 1.4 2.7 3 6 3s6-1.6 6-3v-5.5"/><path d="M21 9.5V16"/></svg>`,
+  trophy:`<svg class="icon" viewBox="0 0 24 24"><path d="M7 4h10v5a5 5 0 0 1-10 0V4Z"/><path d="M7 5H4a3 3 0 0 0 3 5"/><path d="M17 5h3a3 3 0 0 1-3 5"/><path d="M12 14v3"/><path d="M8 20h8"/><path d="M9.5 17h5l.7 3h-6.4l.7-3Z"/></svg>`
 };
 
 /* ============================================================
@@ -1131,6 +1136,14 @@ async function reportsSetPostponeApproval(id, approved){
   if(error) throw new Error('تعذّر تحديث حالة العذر');
   return { report: data };
 }
+/* ملاحظة المدير على تقرير عضو — للمدير/السوبر أدمن بس (محمية على مستوى
+   قاعدة البيانات كمان في guard_reports_update)، بتبعت إشعار للعضو صاحب
+   التقرير تلقائيًا من تريجر على السيرفر */
+async function reportsSetManagerNote(id, note){
+  const { data, error } = await sb.from('reports').update({ managerNote: note || null }).eq('id', id).select().single();
+  if(error) throw new Error('تعذّر حفظ الملاحظة');
+  return { report: data };
+}
 /* تعديل تقرير — كل عضو يقدر يعدّل تقاريره هو بس (مفروض من RLS + guard على قاعدة
    البيانات، مش مجرد إخفاء في الواجهة). لا يشمل postponeApproved — ده بيفضل بيد المدير بس */
 async function reportsUpdate(id, p){
@@ -1328,6 +1341,7 @@ async function learningList(){
 async function learningCreate(p){
   const { data, error } = await sb.from('learning_items').insert({
     title: p.title, description: p.description || null, link: p.link || null,
+    trackTitle: p.trackTitle || null,
     assignedTo: p.assignedTo, createdBy: state.currentUser ? state.currentUser.id : null
   }).select().single();
   if(error) throw new Error(error.message && error.message.includes('غير') ? error.message : 'تعذّر إضافة مادة التعلم');
@@ -1483,6 +1497,7 @@ async function apiFetch(path, options = {}){
   if(path === '/reports' && method === 'GET') return reportsList();
   if(path === '/reports' && method === 'POST') return reportsCreate(body);
   if((m = path.match(/^\/reports\/(\d+)\/postpone-approval$/)) && method === 'PUT') return reportsSetPostponeApproval(Number(m[1]), body.approved);
+  if((m = path.match(/^\/reports\/(\d+)\/manager-note$/)) && method === 'PUT') return reportsSetManagerNote(Number(m[1]), body.note);
   if((m = path.match(/^\/reports\/(\d+)$/)) && method === 'PUT') return reportsUpdate(Number(m[1]), body);
   if((m = path.match(/^\/reports\/(\d+)$/)) && method === 'DELETE') return reportsDelete(Number(m[1]));
 
@@ -1571,6 +1586,12 @@ async function refreshData(){
     apiFetch('/negligence-forgiven-days').then(d => { state.negligenceForgivenDays = d.days || []; }).catch(() => {})
   ];
   await Promise.all(jobs);
+  // خلي بيانات المستخدم الحالي (النقاط/التقصير/إلخ) متزامنة مع آخر نسخة
+  // من قائمة الأعضاء بعد أي تحديث (تسجيل تقرير، إكمال مادة تعلم...)
+  if(state.currentUser){
+    const fresh = state.users.find(u => u.id === state.currentUser.id);
+    if(fresh) state.currentUser = { ...state.currentUser, ...fresh };
+  }
   if(isAdmin){
     // إعادة تقييم التقصير على السيرفر (بيوقف تلقائيًا مين وصل 6 أيام تقصير في الشهر)
     // — تُفرض فورًا بس في صفحة "التقارير"، وباقي الصفحات بتاخد النسخة المؤجّلة (throttled)
@@ -2235,6 +2256,7 @@ $$('.pwd-toggle').forEach(btn => btn.innerHTML = ICONS.eye);
 const NAV_ITEMS = [
   {key:'tasks', label:'المهام', icon:'tasks'},
   {key:'reports', label:'التقارير', icon:'reports'},
+  {key:'team', label:'متابعة الفريق', icon:'trophy', adminOnly:true},
   {key:'learning', label:'التعليم', icon:'bulb'},
   {key:'resources', label:'مصادر التعلم', icon:'book'},
   {key:'courses', label:'الكورسات', icon:'grad'},
@@ -2504,6 +2526,7 @@ function renderPage(){
   const content = $('#pageContent');
   if(state.activePage === 'tasks') content.innerHTML = pageTasks();
   else if(state.activePage === 'reports') content.innerHTML = pageReports();
+  else if(state.activePage === 'team') content.innerHTML = pageTeamOverview();
   else if(state.activePage === 'learning') content.innerHTML = pageLearning();
   else if(state.activePage === 'resources') content.innerHTML = pageResources();
   else if(state.activePage === 'courses') content.innerHTML = pageCourses();
@@ -2666,6 +2689,7 @@ function reportsMemberView(){
 
 
 let editingReportId = null;
+let editingNoteReportId = null;
 
 function reportTimelineItem(r, isAdmin){
   if(editingReportId === r.id) return editReportForm(r);
@@ -2689,6 +2713,19 @@ function reportTimelineItem(r, isAdmin){
       <button class="btn btn-ghost btn-sm edit-report-btn" data-id="${r.id}">${ICONS.edit || ''} تعديل</button>
       <button class="btn btn-danger btn-sm delete-report-btn" data-id="${r.id}">${ICONS.trash || ''} حذف</button>
     </div>` : '';
+  const noteDisplay = r.managerNote ? `<div class="tl-task" style="background:var(--surface-2,rgba(0,0,0,.03)); padding:8px 10px; border-radius:8px;">💬 <b>ملاحظة المدير:</b> ${escapeHtml(r.managerNote)}</div>` : '';
+  const managerNoteForm = (isAdmin && editingNoteReportId === r.id) ? `
+    <form class="manager-note-form" data-id="${r.id}" style="margin-top:8px;">
+      <textarea class="manager-note-input" placeholder="اكتب ملاحظتك على أداء العضو في هذا التقرير...">${escapeHtml(r.managerNote || '')}</textarea>
+      <div class="row-actions" style="margin-top:6px;">
+        <button type="submit" class="btn btn-primary btn-sm">حفظ الملاحظة</button>
+        <button type="button" class="btn btn-ghost btn-sm cancel-manager-note-btn" data-id="${r.id}">إلغاء</button>
+      </div>
+    </form>` : '';
+  const managerNoteToggle = (isAdmin && editingNoteReportId !== r.id) ? `
+    <div class="row-actions" style="margin-top:8px;">
+      <button type="button" class="btn btn-ghost btn-sm add-manager-note-btn" data-id="${r.id}">💬 ${r.managerNote ? 'تعديل الملاحظة' : 'إضافة ملاحظة'}</button>
+    </div>` : '';
   return `
     <div class="timeline-item ${cls}">
       <div class="tl-head">
@@ -2700,8 +2737,11 @@ function reportTimelineItem(r, isAdmin){
       <div class="tl-desc">${escapeHtml(r.description)}</div>
       ${task ? `<div class="tl-task">🔗 مرتبط بمهمة: ${escapeHtml(task.title)}</div>` : ''}
       ${r.postponeUntil ? `<div class="tl-task" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">⏸️ طلب تأجيل احتساب التقصير لحد ${formatDate(r.postponeUntil)} ${postponeBadge}</div>` : ''}
+      ${noteDisplay}
       ${approvalActions}
       ${ownerActions}
+      ${managerNoteToggle}
+      ${managerNoteForm}
     </div>
   `;
 }
@@ -3000,6 +3040,33 @@ function bindPostponeApprovalEvents(container){
     }
   }));
   bindReportOwnerEvents(container);
+  bindManagerNoteEvents(container);
+}
+
+/* إضافة/تعديل ملاحظة المدير على تقرير عضو — متاحة للمدير/السوبر أدمن بس */
+function bindManagerNoteEvents(container){
+  Array.from(container.querySelectorAll('.add-manager-note-btn')).forEach(btn => btn.addEventListener('click', () => {
+    editingNoteReportId = Number(btn.dataset.id);
+    renderPage();
+  }));
+  Array.from(container.querySelectorAll('.cancel-manager-note-btn')).forEach(btn => btn.addEventListener('click', () => {
+    editingNoteReportId = null;
+    renderPage();
+  }));
+  Array.from(container.querySelectorAll('.manager-note-form')).forEach(form => form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const id = Number(form.dataset.id);
+    const note = form.querySelector('.manager-note-input').value.trim();
+    try {
+      await reportsSetManagerNote(id, note);
+      editingNoteReportId = null;
+      await refreshData();
+      renderPage();
+      toast('تم حفظ الملاحظة', 'ok');
+    } catch (err) {
+      toast(err.message, 'err');
+    }
+  }));
 }
 
 /* تعديل/حذف تقرير من صاحبه — متاحة في عرض العضو لتقاريره وفي عرض المدير الإجمالي */
@@ -3090,6 +3157,7 @@ function learningItemHtml(it, isAdmin){
     <div class="timeline-item ${done ? 'tl-green' : 'tl-amber'}">
       <div class="tl-head">
         <span class="badge ${statusBadgeClass(it.status)}">${escapeHtml(it.status)}</span>
+        ${it.trackTitle ? `<span class="badge badge-amber">🧭 ${escapeHtml(it.trackTitle)}</span>` : ''}
         <span class="tl-date">${formatDateTime(it.createdAt)}${isAdmin ? ' — ' + escapeHtml(assignee ? assignee.name : 'عضو محذوف') : ''}</span>
       </div>
       <div class="tl-desc"><b>${escapeHtml(it.title)}</b>${it.description ? '<br>' + escapeHtml(it.description) : ''}</div>
@@ -3166,7 +3234,8 @@ $('#learningForm').addEventListener('submit', async (e) => {
     assignedTo: Number($('#learningAssignee').value),
     title: $('#learningTitle').value.trim(),
     description: $('#learningDesc').value.trim(),
-    link: $('#learningLink').value.trim()
+    link: $('#learningLink').value.trim(),
+    trackTitle: $('#learningTrack').value.trim()
   };
   setFormBusy(form, true);
   try {
@@ -3826,6 +3895,111 @@ function bindChatEvents(){
 /* ============================================================
    PAGE: الأعضاء (Admin فقط)
    ============================================================ */
+/* ============================================================
+   PAGE: متابعة الفريق — لوحة إحصائيات + لوحة صدارة النقاط
+   كل الأرقام هنا محسوبة من نفس البيانات المحمّلة أصلًا (state)، بنفس
+   منطق الحساب المستخدم في صفحة "التقارير" (monthlyNegligentDays) —
+   مفيش استدعاء إضافي للسيرفر، الصفحة دي عرض بس.
+   ============================================================ */
+function userLearningItems(userId){ return state.learning.filter(l => l.assignedTo === userId); }
+
+function pageTeamOverview(){
+  const viewerIsSuper = !!state.currentUser.isSuperAdmin;
+  const members = viewerIsSuper
+    ? state.users.filter(u => !u.isSuperAdmin && u.status !== 'pending')
+    : state.users.filter(u => u.role === 'member' && u.status !== 'pending');
+
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const monthStartStr = monthStart.getFullYear()+'-'+String(monthStart.getMonth()+1).padStart(2,'0')+'-01';
+
+  const totalPoints = members.reduce((s,u) => s + (Number(u.points) || 0), 0);
+  const totalTasks = members.reduce((s,u) => s + userTasks(u.id).length, 0);
+  const doneTasks = members.reduce((s,u) => s + userTasks(u.id).filter(t=>t.status==='مكتملة').length, 0);
+  const totalLearning = members.reduce((s,u) => s + userLearningItems(u.id).length, 0);
+  const doneLearning = members.reduce((s,u) => s + userLearningItems(u.id).filter(l=>l.status==='تم التعلم').length, 0);
+  const reportsThisMonth = members.reduce((s,u) => s + userReports(u.id).filter(r => r.date >= monthStartStr).length, 0);
+  const avgNegligence = members.length
+    ? (members.reduce((s,u) => s + (u.negligenceExempt ? 0 : monthlyNegligentDays(u.id, now).days), 0) / members.length)
+    : 0;
+
+  const rows = members.map(u => {
+    const tasks = userTasks(u.id);
+    const learning = userLearningItems(u.id);
+    return {
+      user: u,
+      points: Number(u.points) || 0,
+      tasksDone: tasks.filter(t=>t.status==='مكتملة').length,
+      tasksTotal: tasks.length,
+      learningDone: learning.filter(l=>l.status==='تم التعلم').length,
+      learningTotal: learning.length,
+      reportsMonth: userReports(u.id).filter(r => r.date >= monthStartStr).length,
+      negligence: u.negligenceExempt ? null : monthlyNegligentDays(u.id, now).days
+    };
+  });
+
+  const leaderboard = rows.slice().sort((a,b) => b.points - a.points).slice(0, 5);
+  const medals = ['🥇','🥈','🥉','🏅','🏅'];
+
+  return `
+    <div class="page-head">
+      <div><h1>متابعة الفريق</h1><p>نظرة عامة على أداء الفريق: النقاط، المهام، التعلم، والانتظام في التقارير</p></div>
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat-card"><div class="stat-num">${members.length}</div><div class="stat-label">أعضاء نشطون</div></div>
+      <div class="stat-card"><div class="stat-num">${totalPoints}</div><div class="stat-label">إجمالي نقاط الفريق</div></div>
+      <div class="stat-card"><div class="stat-num">${totalTasks ? Math.round(doneTasks/totalTasks*100) : 0}%</div><div class="stat-label">نسبة إكمال المهام</div></div>
+      <div class="stat-card"><div class="stat-num">${totalLearning ? Math.round(doneLearning/totalLearning*100) : 0}%</div><div class="stat-label">نسبة إكمال مواد التعلم</div></div>
+      <div class="stat-card"><div class="stat-num">${reportsThisMonth}</div><div class="stat-label">تقارير هذا الشهر</div></div>
+      <div class="stat-card"><div class="stat-num">${avgNegligence.toFixed(1)}</div><div class="stat-label">متوسط أيام التقصير</div></div>
+    </div>
+
+    <div class="section-block">
+      <h3 class="section-title">${ICONS.trophy} لوحة الصدارة (الأعلى نقاطًا)</h3>
+      ${leaderboard.length ? `
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>الترتيب</th><th>العضو</th><th>النقاط</th></tr></thead>
+            <tbody>
+              ${leaderboard.map((r,i) => `
+                <tr>
+                  <td>${medals[i] || (i+1)}</td>
+                  <td class="cell-user">${avatarWithPresence(r.user)} <div style="font-weight:700;">${escapeHtml(r.user.name)}</div></td>
+                  <td><b>${r.points}</b></td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      ` : emptyState('reports','لا توجد بيانات بعد','النقاط بتتجمّع تلقائيًا من تسجيل التقارير على الوقت وإكمال مواد التعلم')}
+    </div>
+
+    <div class="section-block">
+      <h3 class="section-title">تفاصيل كل عضو</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>العضو</th><th>النقاط</th><th>المهام</th><th>مواد التعلم</th><th>تقارير الشهر</th><th>التقصير</th></tr>
+          </thead>
+          <tbody>
+            ${rows.sort((a,b) => b.points - a.points).map(r => `
+              <tr>
+                <td class="cell-user">${avatarWithPresence(r.user)} <div style="font-weight:700;">${escapeHtml(r.user.name)}</div></td>
+                <td><b>${r.points}</b></td>
+                <td>${r.tasksDone} / ${r.tasksTotal}</td>
+                <td>${r.learningDone} / ${r.learningTotal}</td>
+                <td>${r.reportsMonth}</td>
+                <td>${r.negligence === null ? '<span class="badge badge-green">مستثنى</span>' : `<span class="neg-count">${r.negligence} / 6</span>`}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
 function pageMembers(){
   const viewerIsSuper0 = !!state.currentUser.isSuperAdmin;
   // المدير العادي (مسؤول مش سوبر) يشوف أعضاء الفريق (role='member') بس
@@ -3883,7 +4057,7 @@ function pageMembers(){
               const canManageTarget = viewerIsSuper || u.role === 'member';
               return `
               <tr>
-                <td class="cell-user">${avatarWithPresence(u)} <div><div style="font-weight:700;">${escapeHtml(u.name)} ${isSuper ? '<span class="badge badge-amber" title="سوبر أدمن — محمي من حذف أو تعطيل أي حد تاني، ويقدر يحذف حسابه هو بنفسه بس">⭐ سوبر أدمن</span>' : ''}</div><div style="font-size:12px;color:var(--text-400);">${escapeHtml(u.email)}</div>${viewerIsSuper ? `<div style="font-size:12px;color:var(--text-400);">${u.username ? '@'+escapeHtml(u.username) : '<span style=\"color:var(--red-500);\">بدون يوزر نيم</span>'} ${u.phone ? '· ' + escapeHtml(u.phone) : '· <span style=\"color:var(--red-500);\">بدون رقم هاتف</span>'}</div>` : ''}${presenceLabelHtml(u)}</div></td>
+                <td class="cell-user">${avatarWithPresence(u)} <div><div style="font-weight:700;">${escapeHtml(u.name)} ${isSuper ? '<span class="badge badge-amber" title="سوبر أدمن — محمي من حذف أو تعطيل أي حد تاني، ويقدر يحذف حسابه هو بنفسه بس">⭐ سوبر أدمن</span>' : (Number(u.points) > 0 ? `<span class="badge badge-green" title="نقاط الفريق — تُحتسب من تسجيل التقارير على الوقت وإكمال مواد التعلم">${ICONS.trophy} ${Number(u.points)}</span>` : '')}</div><div style="font-size:12px;color:var(--text-400);">${escapeHtml(u.email)}</div>${viewerIsSuper ? `<div style="font-size:12px;color:var(--text-400);">${u.username ? '@'+escapeHtml(u.username) : '<span style=\"color:var(--red-500);\">بدون يوزر نيم</span>'} ${u.phone ? '· ' + escapeHtml(u.phone) : '· <span style=\"color:var(--red-500);\">بدون رقم هاتف</span>'}</div>` : ''}${presenceLabelHtml(u)}</div></td>
                 <td>
                   ${viewerIsSuper ? `
                     <select class="role-select" data-id="${u.id}" ${(isSelf || isSuper) ? 'disabled' : ''} aria-label="صلاحية العضو">
@@ -3940,7 +4114,8 @@ function pageSettings(){
         <div class="avatar-edit">
           ${avatarHtml(u, 'lg')}
           <div style="font-weight:700; margin-bottom:2px;">${escapeHtml(u.name)}</div>
-          <div style="font-size:12.5px; color:var(--text-600); margin-bottom:16px;">${escapeHtml(u.email)}</div>
+          <div style="font-size:12.5px; color:var(--text-600); margin-bottom:8px;">${escapeHtml(u.email)}</div>
+          ${!u.isSuperAdmin ? `<div style="margin-bottom:16px;"><span class="badge badge-green" title="تُحتسب من تسجيل التقارير على الوقت وإكمال مواد التعلم">${ICONS.trophy} ${Number(u.points) || 0} نقطة</span></div>` : ''}
           <input type="file" id="avatarInput" accept="image/*" class="hidden">
           <button class="btn btn-ghost btn-sm" id="changeAvatarBtn" style="margin:0 auto;">${ICONS.camera} تغيير الصورة</button>
         </div>
