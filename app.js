@@ -955,6 +955,7 @@ function formatDateWithDay(dateStr){
 }
 const GRACE_CUTOFF_HOUR = 16; // الموعد النهائي المطلق (قفل اليوم): بعده تقصير كامل مباشرة = الساعة 4 عصرًا من اليوم التالي
 const GRACE_LATE_START_HOUR = 13; // بداية نافذة "التأخير": قبلها التسجيل يعتبر على الوقت تمامًا رغم إنه في اليوم التالي = الساعة 1 ظهرًا
+const POSTPONE_MONTHLY_CAP = 5; // (v31) أقصى عدد أيام "مؤجَّلة" (لن يتم التعلم، موافَق عليها) بيتعفى منها العضو في الشهر
 /* بيرجّع كائن Date "بديل" بمكوّنات الوقت الفعلية بتوقيت القاهرة (Africa/Cairo)
    لأي لحظة زمنية، بغض النظر عن توقيت جهاز/متصفح العضو نفسه — عشان
    getFullYear()/getMonth()/getDate()/getHours() المستخدمة أصلًا في كل حسابات
@@ -1015,6 +1016,7 @@ function dailyBreakdownForUser(userId, monthDate){
   const lastDay = isCurrentMonth ? lastFinal : new Date(monthDate.getFullYear(), monthDate.getMonth()+1, 0);
 
   const rows = [];
+  let postponeUsed = 0; // (v31) عدّاد الأيام المؤجَّلة المُستهلَكة من رصيد الشهر (بحد أقصى POSTPONE_MONTHLY_CAP)
   for(let d = new Date(Math.max(monthStart, created)); d <= lastDay; d.setDate(d.getDate()+1)){
     const dStr = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
     // يوم الجمعة: إجازة كاملة (زي recalc_negligence على السيرفر — v16) — مفيش
@@ -1029,7 +1031,11 @@ function dailyBreakdownForUser(userId, monthDate){
       rows.push({ date: dStr, status: 'forgiven', time: null });
       continue;
     }
-    if(postponeUntil && dStr <= postponeUntil){
+    // (v31) يوم داخل نافذة تأجيل موافَق عليها بيتعفى بس لو لسه فيه رصيد من الـ5
+    // أيام المسموحة هذا الشهر (بالترتيب الزمني من أول الشهر) — بعد ما الرصيد
+    // يخلص، اليوم بيرجع يتقيّم عادي (تقصير/تأخير) زي أي يوم من غير تأجيل خالص
+    if(postponeUntil && dStr <= postponeUntil && postponeUsed < POSTPONE_MONTHLY_CAP){
+      postponeUsed++;
       rows.push({ date: dStr, status: 'postponed', time: null });
       continue;
     }
@@ -1084,6 +1090,47 @@ function cairoTodayStr(){
    اليوم بيتعامل معاه زي إجازة الجمعة بالظبط: مفيش أي احتساب عليه خالص */
 function isNegligenceDayForgiven(userId, dateStr){
   return state.negligenceForgivenDays.some(f => f.userId === userId && f.date === dateStr);
+}
+/* (v31) كام يوم من رصيد "التأجيل" (لن يتم التعلم، بعد موافقة المدير) استُهلك
+   فعليًا هذا الشهر لعضو معيّن — بنفس منطق dailyBreakdownForUser/recalc_negligence
+   بالظبط (استهلاك يومي بالترتيب الزمني من أول الشهر، بحد أقصى POSTPONE_MONTHLY_CAP).
+   يُستخدم لعرض "متبقي لك كذا يوم" وتحديد آخر تاريخ يقدر العضو يختاره. */
+function postponeDaysUsedThisMonth(userId){
+  const user = findUser(userId);
+  if(!user) return 0;
+  const postponeDates = state.reports
+    .filter(r => r.userId === userId && r.postponeUntil && r.postponeApproved === true)
+    .map(r => r.postponeUntil)
+    .sort();
+  const postponeUntil = postponeDates.length ? postponeDates[postponeDates.length-1] : null;
+  if(!postponeUntil) return 0;
+
+  const now = toCairoLocal(new Date());
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const created = new Date(user.createdAt);
+  const cutoffPassed = now.getHours() >= GRACE_CUTOFF_HOUR;
+  const lastFinal = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (cutoffPassed ? 1 : 2));
+
+  let used = 0;
+  for(let d = new Date(Math.max(monthStart, created)); d <= lastFinal && used < POSTPONE_MONTHLY_CAP; d.setDate(d.getDate()+1)){
+    const dStr = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    if(isFridayDate(dStr)) continue;
+    if(isNegligenceDayForgiven(userId, dStr)) continue;
+    if(dStr <= postponeUntil) used++;
+  }
+  return used;
+}
+function postponeDaysRemaining(userId){
+  return Math.max(0, POSTPONE_MONTHLY_CAP - postponeDaysUsedThisMonth(userId));
+}
+/* آخر تاريخ يقدر العضو يختاره في حقل "مؤجّل لحد تاريخ" — بيبدأ من النهارده
+   ويمتد على قد الأيام المتبقية له من الرصيد الشهري (5 أيام)؛ لو الرصيد خلص
+   بيرجّع النهارده نفسه (يعني عمليًا مفيش تأجيل جديد هيتحسب كعذر بعد كده) */
+function maxPostponeDateStr(userId){
+  const remaining = postponeDaysRemaining(userId);
+  const now = toCairoLocal(new Date());
+  const maxD = new Date(now.getFullYear(), now.getMonth(), now.getDate() + remaining);
+  return maxD.getFullYear()+'-'+String(maxD.getMonth()+1).padStart(2,'0')+'-'+String(maxD.getDate()).padStart(2,'0');
 }
 function predictedReportTarget(userId){
   const user = findUser(userId);
@@ -1975,7 +2022,12 @@ function myReportSubmissionSection(){
         </div>
         <div class="form-row hidden" id="postponeRow">
           <label for="reportPostpone">مؤجّل لحد تاريخ (اختياري — لن يُحتسب تقصيرًا حتى هذا التاريخ)</label>
-          <input type="date" id="reportPostpone" min="${todayStr()}">
+          <input type="date" id="reportPostpone" min="${todayStr()}" max="${maxPostponeDateStr(state.currentUser.id)}">
+          <div style="font-size:12px; color:var(--text-400); margin-top:4px;">
+            ${postponeDaysRemaining(state.currentUser.id) > 0
+              ? `⏳ متبقي لك ${postponeDaysRemaining(state.currentUser.id)} من أصل ${POSTPONE_MONTHLY_CAP} أيام تأجيل مسموح بيها هذا الشهر — آخر تاريخ يمكنك اختياره: ${formatDate(maxPostponeDateStr(state.currentUser.id))}`
+              : `⚠️ استنفدت الـ${POSTPONE_MONTHLY_CAP} أيام تأجيل المسموح بيها هذا الشهر — أي تأجيل تطلبه الآن لن يُحتسب كعذر وسيُحتسب تقصيرًا عاديًا`}
+          </div>
         </div>
         <div class="form-row">
           <label for="reportDesc">وصف ما تم تعلمه</label>
@@ -2076,7 +2128,12 @@ function editReportForm(r){
         </div>
         <div class="form-row edit-report-postpone-row ${showPostpone ? '' : 'hidden'}">
           <label for="editReportPostpone_${r.id}">مؤجّل لحد تاريخ (اختياري)</label>
-          <input type="date" id="editReportPostpone_${r.id}" class="edit-report-postpone" value="${r.postponeUntil || ''}">
+          <input type="date" id="editReportPostpone_${r.id}" class="edit-report-postpone" value="${r.postponeUntil || ''}" min="${todayStr()}" max="${maxPostponeDateStr(r.userId)}">
+          <div style="font-size:12px; color:var(--text-400); margin-top:4px;">
+            ${postponeDaysRemaining(r.userId) > 0
+              ? `⏳ متبقي ${postponeDaysRemaining(r.userId)} من أصل ${POSTPONE_MONTHLY_CAP} أيام تأجيل هذا الشهر — آخر تاريخ ممكن: ${formatDate(maxPostponeDateStr(r.userId))}`
+              : `⚠️ الـ${POSTPONE_MONTHLY_CAP} أيام تأجيل المسموحة هذا الشهر خلصت — أي تأجيل جديد لن يُحتسب كعذر`}
+          </div>
         </div>
         <div class="form-row">
           <label for="editReportDesc_${r.id}">وصف ما تم تعلمه</label>
