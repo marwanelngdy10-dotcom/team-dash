@@ -543,3 +543,38 @@
   .table-wrap{ overflow:visible !important; }
   .timeline-item{ break-inside:avoid; }
 }
+
+
+/* ============================================================
+   الفرق المتعددة — اختيار انضمام/إنشاء فريق + إعدادات الفريق + تليجرام
+   ============================================================ */
+.reg-mode{display:flex; gap:6px; background:var(--surface-inset); padding:4px; border-radius:10px; margin-bottom:16px;}
+.reg-mode-btn{flex:1; padding:9px 8px; border:none; border-radius:7px; background:transparent; color:var(--text-600); font-weight:700; font-size:13.5px; cursor:pointer; font-family:inherit;}
+.reg-mode-btn.active{background:var(--surface); color:var(--text-900); box-shadow:var(--shadow-sm);}
+.reg-team-hint{font-size:12.5px; color:var(--text-600); margin-top:6px; line-height:1.7; min-height:4px;}
+.reg-team-hint.ok{color:var(--green-500); font-weight:700;}
+.reg-team-hint.err{color:var(--red-500); font-weight:700;}
+
+.team-chip{display:flex; align-items:center; gap:8px; margin:0 8px 14px; padding:8px 10px; border-radius:10px; background:rgba(255,255,255,.07); color:#fff; font-size:13px; font-weight:700; position:relative; z-index:1;}
+.team-chip:empty{display:none;}
+.team-chip .icon{width:16px; height:16px; opacity:.8; flex-shrink:0;}
+.team-chip span{overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+
+.team-invite-box{margin-top:18px; padding-top:16px; border-top:1px dashed var(--border);}
+.team-invite-box > label{font-size:13px; font-weight:700; color:var(--text-600); display:block; margin-bottom:8px;}
+.team-invite-code{font-family:ui-monospace,Menlo,Consolas,monospace; font-size:20px; font-weight:800; letter-spacing:2px; text-align:center; padding:12px; border-radius:10px; background:var(--surface-inset); color:var(--text-900); user-select:all;}
+.team-invite-note{font-size:12.5px; color:var(--text-600); line-height:1.8; margin:10px 0 12px;}
+.team-actions{display:flex; flex-wrap:wrap; gap:8px;}
+.team-actions .btn{flex:1 1 auto; justify-content:center;}
+
+.tg-status{display:flex; align-items:center; gap:8px; padding:10px 12px; border-radius:10px; font-size:13.5px; margin-bottom:14px;}
+.tg-status.ok{background:var(--green-100); color:var(--green-500);}
+.tg-status.off{background:var(--chip-grey); color:var(--text-600);}
+.tg-steps{margin:0 0 14px; padding:0 18px 0 0; font-size:13.5px; color:var(--text-600); line-height:2;}
+.tg-steps b{color:var(--text-900);}
+.tg-note{font-size:12.5px; color:var(--text-600); line-height:1.8; background:var(--amber-100); border-radius:10px; padding:10px 12px; margin-bottom:14px;}
+[data-theme="dark"] .tg-note{background:rgba(231,163,62,.12);}
+.tg-code{font-family:ui-monospace,Menlo,Consolas,monospace; direction:ltr; text-align:center; font-size:15px; font-weight:800; padding:12px; border-radius:10px; background:var(--surface-inset); color:var(--text-900); user-select:all; margin-bottom:10px; word-break:break-all;}
+.tg-toggle{display:flex; align-items:center; gap:10px; font-size:13.5px; font-weight:700; color:var(--text-900); margin:0 0 14px; cursor:pointer;}
+.tg-toggle input{width:auto; accent-color:var(--amber-500);}
+.tg-link-form{margin-top:18px; padding-top:16px; border-top:1px dashed var(--border);}

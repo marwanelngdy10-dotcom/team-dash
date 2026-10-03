@@ -47,6 +47,10 @@ const SUPABASE_ANON_KEY = 'sb_publishable_Bzr6eoNTg_P_LuFXB3BGJw_XcGlM9hc';
 
 const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+/* اسم بوت تليجرام المشترك لكل الفرق (من BotFather، بدون @) — معلومة عامة مش سرية.
+   توكن البوت نفسه موجود في Supabase Secrets بس، ومش في الموقع أبدًا. */
+const TELEGRAM_BOT_USERNAME = 'YOUR_BOT_USERNAME';
+
 /* ============================================================
    PWA — تثبيت الموقع كتطبيق + إشعارات Push حقيقية (حتى لو الموقع مقفول)
    ============================================================ */
@@ -176,20 +180,40 @@ async function authLogin({ email, password }){
   return { token: 'session', user: appUser };
 }
 
-async function authRegister({ name, email, username, phone, password }){
-  const { error } = await sb.auth.signUp({
-    email, password,
-    options: { data: { name, username, phone } }
-  });
+async function authRegister({ name, email, username, phone, password, teamCode, newTeamName }){
+  // الفريق: إما كود دعوة لفريق موجود (الحساب بيستنى موافقة مديره)، أو اسم فريق جديد
+  // (المؤسس بيبقى مدير فريقه ومفعّل فورًا) — والتريجر على قاعدة البيانات هو اللي بيطبّق ده
+  const meta = { name, username, phone };
+  if(newTeamName) meta.new_team_name = newTeamName;
+  else meta.team_code = teamCode;
+  const { error } = await sb.auth.signUp({ email, password, options: { data: meta } });
   if(error){
     const msg = String(error.message || '').toLowerCase();
     if(msg.includes('already') || msg.includes('registered')) throw new Error('هذا البريد الإلكتروني مسجّل بالفعل');
+    if(msg.includes('invalid_team_code')) throw new Error('كود الفريق غير صحيح');
     if(msg.includes('username') || msg.includes('idx_users_username')) throw new Error('اسم المستخدم ده مستخدم بالفعل، جرّب اسم تاني');
     if(msg.includes('chk_username_format')) throw new Error('اسم المستخدم لازم يكون حروف إنجليزية/أرقام فقط (3 لـ30 حرف)، من غير @ أو مسافات');
     throw new Error('تعذّر إنشاء الحساب، حاول مرة أخرى');
   }
-  await sb.auth.signOut(); // الحساب Pending لحد موافقة المدير
-  return {};
+  await sb.auth.signOut(); // عضو منضم = Pending لحد موافقة مدير فريقه
+  return { teamCreated: !!newTeamName };
+}
+
+/* ============================================================
+   الفرق — اسم الفريق، كود الدعوة، وربط جروب تليجرام
+   ============================================================ */
+async function teamLoad(){
+  try {
+    const { data } = await sb.rpc('get_my_team');
+    state.team = data || null;
+    if(state.currentUser && state.currentUser.role === 'admin'){
+      const { data: s, error } = await sb.rpc('get_team_settings');
+      state.teamSettings = error ? null : s;
+      if(s) state.team = { id: s.id, name: s.name };
+    } else {
+      state.teamSettings = null;
+    }
+  } catch (err) { /* فشل هادئ: الموقع يشتغل عادي حتى لو لسه ملف الفرق مش متشغّل */ }
 }
 
 async function authMe(){
@@ -326,7 +350,8 @@ async function usersCreate(p){
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
   });
   const { data: signUpData, error } = await tempClient.auth.signUp({
-    email: p.email, password: p.password, options: { data: { name: p.name } }
+    email: p.email, password: p.password,
+    options: { data: { name: p.name, team_code: state.teamSettings && state.teamSettings.inviteCode } }
   });
   if(error){
     const msg = String(error.message || '').toLowerCase();
@@ -717,6 +742,8 @@ async function apiFetch(path, options = {}){
    ============================================================ */
 const state = {
   currentUser: null,
+  team: null,
+  teamSettings: null,
   activePage: 'tasks',
   users: [],
   tasks: [],
@@ -955,7 +982,6 @@ function formatDateWithDay(dateStr){
 }
 const GRACE_CUTOFF_HOUR = 16; // الموعد النهائي المطلق (قفل اليوم): بعده تقصير كامل مباشرة = الساعة 4 عصرًا من اليوم التالي
 const GRACE_LATE_START_HOUR = 13; // بداية نافذة "التأخير": قبلها التسجيل يعتبر على الوقت تمامًا رغم إنه في اليوم التالي = الساعة 1 ظهرًا
-const POSTPONE_MONTHLY_CAP = 5; // (v31) أقصى عدد أيام "مؤجَّلة" (لن يتم التعلم، موافَق عليها) بيتعفى منها العضو في الشهر
 /* بيرجّع كائن Date "بديل" بمكوّنات الوقت الفعلية بتوقيت القاهرة (Africa/Cairo)
    لأي لحظة زمنية، بغض النظر عن توقيت جهاز/متصفح العضو نفسه — عشان
    getFullYear()/getMonth()/getDate()/getHours() المستخدمة أصلًا في كل حسابات
@@ -1016,7 +1042,6 @@ function dailyBreakdownForUser(userId, monthDate){
   const lastDay = isCurrentMonth ? lastFinal : new Date(monthDate.getFullYear(), monthDate.getMonth()+1, 0);
 
   const rows = [];
-  let postponeUsed = 0; // (v31) عدّاد الأيام المؤجَّلة المُستهلَكة من رصيد الشهر (بحد أقصى POSTPONE_MONTHLY_CAP)
   for(let d = new Date(Math.max(monthStart, created)); d <= lastDay; d.setDate(d.getDate()+1)){
     const dStr = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
     // يوم الجمعة: إجازة كاملة (زي recalc_negligence على السيرفر — v16) — مفيش
@@ -1031,11 +1056,7 @@ function dailyBreakdownForUser(userId, monthDate){
       rows.push({ date: dStr, status: 'forgiven', time: null });
       continue;
     }
-    // (v31) يوم داخل نافذة تأجيل موافَق عليها بيتعفى بس لو لسه فيه رصيد من الـ5
-    // أيام المسموحة هذا الشهر (بالترتيب الزمني من أول الشهر) — بعد ما الرصيد
-    // يخلص، اليوم بيرجع يتقيّم عادي (تقصير/تأخير) زي أي يوم من غير تأجيل خالص
-    if(postponeUntil && dStr <= postponeUntil && postponeUsed < POSTPONE_MONTHLY_CAP){
-      postponeUsed++;
+    if(postponeUntil && dStr <= postponeUntil){
       rows.push({ date: dStr, status: 'postponed', time: null });
       continue;
     }
@@ -1090,47 +1111,6 @@ function cairoTodayStr(){
    اليوم بيتعامل معاه زي إجازة الجمعة بالظبط: مفيش أي احتساب عليه خالص */
 function isNegligenceDayForgiven(userId, dateStr){
   return state.negligenceForgivenDays.some(f => f.userId === userId && f.date === dateStr);
-}
-/* (v31) كام يوم من رصيد "التأجيل" (لن يتم التعلم، بعد موافقة المدير) استُهلك
-   فعليًا هذا الشهر لعضو معيّن — بنفس منطق dailyBreakdownForUser/recalc_negligence
-   بالظبط (استهلاك يومي بالترتيب الزمني من أول الشهر، بحد أقصى POSTPONE_MONTHLY_CAP).
-   يُستخدم لعرض "متبقي لك كذا يوم" وتحديد آخر تاريخ يقدر العضو يختاره. */
-function postponeDaysUsedThisMonth(userId){
-  const user = findUser(userId);
-  if(!user) return 0;
-  const postponeDates = state.reports
-    .filter(r => r.userId === userId && r.postponeUntil && r.postponeApproved === true)
-    .map(r => r.postponeUntil)
-    .sort();
-  const postponeUntil = postponeDates.length ? postponeDates[postponeDates.length-1] : null;
-  if(!postponeUntil) return 0;
-
-  const now = toCairoLocal(new Date());
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const created = new Date(user.createdAt);
-  const cutoffPassed = now.getHours() >= GRACE_CUTOFF_HOUR;
-  const lastFinal = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (cutoffPassed ? 1 : 2));
-
-  let used = 0;
-  for(let d = new Date(Math.max(monthStart, created)); d <= lastFinal && used < POSTPONE_MONTHLY_CAP; d.setDate(d.getDate()+1)){
-    const dStr = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
-    if(isFridayDate(dStr)) continue;
-    if(isNegligenceDayForgiven(userId, dStr)) continue;
-    if(dStr <= postponeUntil) used++;
-  }
-  return used;
-}
-function postponeDaysRemaining(userId){
-  return Math.max(0, POSTPONE_MONTHLY_CAP - postponeDaysUsedThisMonth(userId));
-}
-/* آخر تاريخ يقدر العضو يختاره في حقل "مؤجّل لحد تاريخ" — بيبدأ من النهارده
-   ويمتد على قد الأيام المتبقية له من الرصيد الشهري (5 أيام)؛ لو الرصيد خلص
-   بيرجّع النهارده نفسه (يعني عمليًا مفيش تأجيل جديد هيتحسب كعذر بعد كده) */
-function maxPostponeDateStr(userId){
-  const remaining = postponeDaysRemaining(userId);
-  const now = toCairoLocal(new Date());
-  const maxD = new Date(now.getFullYear(), now.getMonth(), now.getDate() + remaining);
-  return maxD.getFullYear()+'-'+String(maxD.getMonth()+1).padStart(2,'0')+'-'+String(maxD.getDate()).padStart(2,'0');
 }
 function predictedReportTarget(userId){
   const user = findUser(userId);
@@ -1348,6 +1328,54 @@ $('#loginForm').addEventListener('submit', async (e) => {
   }
 });
 
+let regMode = 'join';
+function setRegMode(mode){
+  regMode = mode;
+  $$('#regModeSwitch .reg-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
+  $('#regJoinRow').classList.toggle('hidden', mode !== 'join');
+  $('#regCreateRow').classList.toggle('hidden', mode !== 'create');
+  $('#regDesc').textContent = mode === 'join'
+    ? 'سيُعرض طلبك على مدير الفريق للموافقة قبل تفعيله'
+    : 'هتبقى مدير فريقك الجديد، ولوحة المتابعة خاصة بفريقك فقط';
+  const btn = $('#registerForm button[type="submit"]');
+  delete btn.dataset.originalHtml;
+  btn.textContent = mode === 'join' ? 'إرسال طلب الانضمام' : 'إنشاء الفريق والحساب';
+  $('#registerMsg').innerHTML = '';
+}
+
+let regCodeTimer = null;
+async function checkRegTeamCode(){
+  const hint = $('#regTeamHint');
+  const code = $('#regTeamCode').value.trim().toUpperCase();
+  hint.className = 'reg-team-hint';
+  if(code.length < 6){ hint.textContent = ''; return null; }
+  const { data, error } = await sb.rpc('check_team_code', { p_code: code });
+  if(error || !data){
+    hint.className = 'reg-team-hint err';
+    hint.textContent = 'كود الفريق غير صحيح';
+    return null;
+  }
+  hint.className = 'reg-team-hint ok';
+  hint.textContent = `✓ هتنضم لفريق «${data}»`;
+  return data;
+}
+
+function initRegisterTeamUi(){
+  $$('#regModeSwitch .reg-mode-btn').forEach(b => b.addEventListener('click', () => setRegMode(b.dataset.mode)));
+  $('#regTeamCode').addEventListener('input', () => {
+    clearTimeout(regCodeTimer);
+    regCodeTimer = setTimeout(() => checkRegTeamCode().catch(() => {}), 400);
+  });
+  // رابط دعوة: ?team=CODE  → يفتح تبويب "حساب جديد" والكود جاهز
+  const invited = new URLSearchParams(window.location.search).get('team');
+  if(invited){
+    switchAuthTab('register');
+    setRegMode('join');
+    $('#regTeamCode').value = invited.trim().toUpperCase();
+    checkRegTeamCode().catch(() => {});
+  }
+}
+
 $('#registerForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const form = e.target;
@@ -1357,7 +1385,11 @@ $('#registerForm').addEventListener('submit', async (e) => {
   const phone = $('#regPhone').value.trim();
   const pass = $('#regPassword').value;
   const pass2 = $('#regPassword2').value;
+  const teamCode = $('#regTeamCode').value.trim().toUpperCase();
+  const newTeamName = $('#regTeamName').value.trim();
 
+  if(regMode === 'join' && !teamCode){ showFormMsg('#registerMsg','اكتب كود الفريق اللي ادّاهولك مدير فريقك (أو اختار "إنشاء فريق جديد").', 'err'); return; }
+  if(regMode === 'create' && newTeamName.length < 2){ showFormMsg('#registerMsg','اكتب اسم الفريق (حرفين على الأقل).', 'err'); return; }
   if(name.length < 3){ showFormMsg('#registerMsg','يرجى كتابة الاسم الكامل.', 'err'); return; }
   if(!/^[A-Za-z0-9_.]{3,30}$/.test(username)){ showFormMsg('#registerMsg','اسم المستخدم لازم يكون حروف إنجليزية/أرقام فقط (من غير @ أو مسافات)، من 3 لـ30 حرف.', 'err'); return; }
   if(!/^[0-9]{11}$/.test(phone)){ showFormMsg('#registerMsg','رقم الهاتف لازم يكون 11 رقم بالظبط.', 'err'); return; }
@@ -1367,12 +1399,39 @@ $('#registerForm').addEventListener('submit', async (e) => {
 
   setFormBusy(form, true);
   try {
-    await apiFetch('/auth/register', {
+    let joinedTeamName = null;
+    if(regMode === 'join'){
+      joinedTeamName = await checkRegTeamCode();
+      if(!joinedTeamName) throw new Error('كود الفريق غير صحيح');
+    }
+    const res = await apiFetch('/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ name, email, username, phone, password: pass })
+      body: JSON.stringify({
+        name, email, username, phone, password: pass,
+        teamCode: regMode === 'join' ? teamCode : null,
+        newTeamName: regMode === 'create' ? newTeamName : null
+      })
     });
+
+    if(res && res.teamCreated){
+      // مؤسس الفريق مفعّل فورًا: ندخّله على طول
+      try {
+        const data = await authLogin({ email, password: pass });
+        setToken(data.token);
+        state.currentUser = data.user;
+        form.reset();
+        await enterApp();
+        return;
+      } catch (loginErr) {
+        form.reset();
+        showFormMsg('#registerMsg', 'تم إنشاء فريقك وحسابك! سجّل دخولك دلوقتي.', 'ok');
+        return;
+      }
+    }
+
     form.reset();
-    showFormMsg('#registerMsg', 'تم إرسال طلبك بنجاح! سيتم إشعارك بعد موافقة المدير.', 'ok');
+    $('#regTeamHint').textContent = '';
+    showFormMsg('#registerMsg', `تم إرسال طلبك بنجاح لفريق «${joinedTeamName}»! سيتم إشعارك بعد موافقة المدير.`, 'ok');
   } catch (err) {
     showFormMsg('#registerMsg', err.message, 'err');
   } finally {
@@ -1455,6 +1514,9 @@ async function logout(){
   await sb.auth.signOut();
   setToken(null);
   state.currentUser = null;
+  state.team = null;
+  state.teamSettings = null;
+  stopTeamPolling();
   state.users = [];
   state.tasks = [];
   state.reports = [];
@@ -1555,6 +1617,8 @@ async function enterApp(showWelcome){
   renderSidebar();
   renderTopbar();
   renderPage();
+  await teamLoad();
+  renderSidebar();
   try {
     await refreshData();
   } catch (err) {
@@ -1657,6 +1721,8 @@ async function tryRestoreSession(){
 
 function renderSidebar(){
   const isAdmin = state.currentUser.role === 'admin';
+  const teamChip = $('#teamChip');
+  if(teamChip) teamChip.innerHTML = state.team ? `${ICONS.members} <span>${escapeHtml(state.team.name)}</span>` : '';
   $('#navList').innerHTML = NAV_ITEMS
     .filter(item => !item.adminOnly || isAdmin)
     .map(item => `
@@ -1828,6 +1894,7 @@ function closeSidebarMobile(){
 
 function renderPage(){
   if(state.activePage !== 'chat') stopChatPolling();
+  if(state.activePage !== 'settings') stopTeamPolling();
   const content = $('#pageContent');
   content.classList.remove('page-content-fade');
   void content.offsetWidth;
@@ -2022,12 +2089,7 @@ function myReportSubmissionSection(){
         </div>
         <div class="form-row hidden" id="postponeRow">
           <label for="reportPostpone">مؤجّل لحد تاريخ (اختياري — لن يُحتسب تقصيرًا حتى هذا التاريخ)</label>
-          <input type="date" id="reportPostpone" min="${todayStr()}" max="${maxPostponeDateStr(state.currentUser.id)}">
-          <div style="font-size:12px; color:var(--text-400); margin-top:4px;">
-            ${postponeDaysRemaining(state.currentUser.id) > 0
-              ? `⏳ متبقي لك ${postponeDaysRemaining(state.currentUser.id)} من أصل ${POSTPONE_MONTHLY_CAP} أيام تأجيل مسموح بيها هذا الشهر — آخر تاريخ يمكنك اختياره: ${formatDate(maxPostponeDateStr(state.currentUser.id))}`
-              : `⚠️ استنفدت الـ${POSTPONE_MONTHLY_CAP} أيام تأجيل المسموح بيها هذا الشهر — أي تأجيل تطلبه الآن لن يُحتسب كعذر وسيُحتسب تقصيرًا عاديًا`}
-          </div>
+          <input type="date" id="reportPostpone" min="${todayStr()}">
         </div>
         <div class="form-row">
           <label for="reportDesc">وصف ما تم تعلمه</label>
@@ -2128,12 +2190,7 @@ function editReportForm(r){
         </div>
         <div class="form-row edit-report-postpone-row ${showPostpone ? '' : 'hidden'}">
           <label for="editReportPostpone_${r.id}">مؤجّل لحد تاريخ (اختياري)</label>
-          <input type="date" id="editReportPostpone_${r.id}" class="edit-report-postpone" value="${r.postponeUntil || ''}" min="${todayStr()}" max="${maxPostponeDateStr(r.userId)}">
-          <div style="font-size:12px; color:var(--text-400); margin-top:4px;">
-            ${postponeDaysRemaining(r.userId) > 0
-              ? `⏳ متبقي ${postponeDaysRemaining(r.userId)} من أصل ${POSTPONE_MONTHLY_CAP} أيام تأجيل هذا الشهر — آخر تاريخ ممكن: ${formatDate(maxPostponeDateStr(r.userId))}`
-              : `⚠️ الـ${POSTPONE_MONTHLY_CAP} أيام تأجيل المسموحة هذا الشهر خلصت — أي تأجيل جديد لن يُحتسب كعذر`}
-          </div>
+          <input type="date" id="editReportPostpone_${r.id}" class="edit-report-postpone" value="${r.postponeUntil || ''}">
         </div>
         <div class="form-row">
           <label for="editReportDesc_${r.id}">وصف ما تم تعلمه</label>
@@ -3513,6 +3570,260 @@ function pageMembers(){
 /* ============================================================
    PAGE: الإعدادات
    ============================================================ */
+/* ============================================================
+   إعدادات الفريق (للمدير): الاسم، كود الدعوة، وربط جروب تليجرام
+   ============================================================ */
+let teamPollTimer = null;
+function stopTeamPolling(){
+  if(teamPollTimer){ clearInterval(teamPollTimer); teamPollTimer = null; }
+}
+
+function teamInviteUrl(){
+  const code = state.teamSettings && state.teamSettings.inviteCode;
+  const base = window.location.origin + window.location.pathname;
+  return code ? `${base}?team=${encodeURIComponent(code)}` : base;
+}
+
+async function copyText(text, okMsg){
+  try {
+    await navigator.clipboard.writeText(text);
+    toast(okMsg || 'تم النسخ', 'ok');
+  } catch (err) {
+    window.prompt('انسخ من هنا:', text);
+  }
+}
+
+function formatCodeExpiry(iso){
+  if(!iso) return '';
+  const mins = Math.max(0, Math.round((new Date(iso).getTime() - Date.now()) / 60000));
+  return mins > 0 ? `صالح لحوالي ${mins} دقيقة` : 'انتهت صلاحيته';
+}
+
+function teamSettingsCardsHtml(){
+  if(!state.currentUser || state.currentUser.role !== 'admin') return '';
+  const s = state.teamSettings;
+  if(!s){
+    return `
+      <div class="card settings-card">
+        <h3 class="section-title">إعدادات الفريق</h3>
+        <p style="font-size:13px; color:var(--text-600);">تعذّر تحميل إعدادات الفريق. تأكد إن ملف <b>supabase_migration_teams.sql</b> اتشغّل على Supabase.</p>
+      </div>`;
+  }
+  return `
+    <div class="card settings-card">
+      <h3 class="section-title">إعدادات الفريق</h3>
+      <form id="teamNameForm">
+        <div class="form-row">
+          <label for="teamNameInput">اسم الفريق</label>
+          <input type="text" id="teamNameInput" required maxlength="60" value="${escapeHtml(s.name)}">
+        </div>
+        <button type="submit" class="btn btn-primary" style="width:100%;">حفظ الاسم</button>
+      </form>
+      <div class="team-invite-box">
+        <label>كود دعوة الفريق</label>
+        <div class="team-invite-code" dir="ltr">${escapeHtml(s.inviteCode)}</div>
+        <p class="team-invite-note">أي حد يسجّل بالكود ده بيدخل <b>فريقك أنت بس</b> بعد موافقتك. الفرق التانية مش بتشوف أي بيانات عندكم، ولا أنتم بتشوفوا بياناتهم.</p>
+        <div class="team-actions">
+          <button type="button" class="btn btn-ghost btn-sm" id="copyInviteLinkBtn">${ICONS.share} نسخ رابط الدعوة</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="copyInviteCodeBtn">نسخ الكود</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="regenInviteBtn">تغيير الكود</button>
+        </div>
+      </div>
+    </div>
+    <div class="card settings-card" id="telegramCard">
+      ${telegramCardInnerHtml(s.telegram || {})}
+    </div>`;
+}
+
+function telegramCardInnerHtml(tg){
+  const botName = TELEGRAM_BOT_USERNAME;
+  const linkForm = `
+    <form id="tgLinkForm" class="tg-link-form">
+      <div class="form-row">
+        <label for="tgGroupLink">رابط جروب التليجرام (اختياري — للرجوع إليه فقط)</label>
+        <input type="url" id="tgGroupLink" dir="ltr" placeholder="https://t.me/+xxxxxxxx" value="${escapeHtml(tg.groupLink || '')}">
+      </div>
+      <div class="team-actions">
+        <button type="submit" class="btn btn-ghost btn-sm">حفظ الرابط</button>
+        ${tg.groupLink ? `<a class="btn btn-ghost btn-sm" href="${escapeHtml(tg.groupLink)}" target="_blank" rel="noopener noreferrer">فتح الجروب</a>` : ''}
+      </div>
+    </form>`;
+
+  if(tg.connected){
+    return `
+      <h3 class="section-title">تقارير تليجرام</h3>
+      <div class="tg-status ok">${ICONS.check} <span>متصل بجروب: <b>${escapeHtml(tg.chatTitle || 'جروب الفريق')}</b></span></div>
+      <label class="tg-toggle"><input type="checkbox" id="tgReportsToggle" ${tg.reportsEnabled ? 'checked' : ''}> إرسال تقرير التقصير اليومي للجروب ده</label>
+      <div class="team-actions">
+        <button type="button" class="btn btn-primary btn-sm" id="tgTestBtn">إرسال رسالة تجربة</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="tgDisconnectBtn">فصل الجروب</button>
+      </div>
+      ${linkForm}`;
+  }
+
+  const pending = tg.pendingCode
+    ? `
+      <div class="tg-code" id="tgCommandText">/connect@${escapeHtml(botName)} ${escapeHtml(tg.pendingCode)}</div>
+      <p class="team-invite-note" style="margin-top:0;">ابعت السطر ده جوه الجروب. ${escapeHtml(formatCodeExpiry(tg.codeExpiresAt))}. بنستنى الربط ونحدّث الحالة تلقائيًا…</p>
+      <div class="team-actions">
+        <button type="button" class="btn btn-primary btn-sm" id="tgCopyCmdBtn">نسخ الأمر</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="tgGenCodeBtn">كود جديد</button>
+      </div>`
+    : `<button type="button" class="btn btn-primary" id="tgGenCodeBtn" style="width:100%;">توليد كود الربط</button>`;
+
+  return `
+    <h3 class="section-title">ربط جروب تليجرام</h3>
+    <div class="tg-status off">${ICONS.ban} <span>الفريق غير مربوط بجروب لسه</span></div>
+    <ol class="tg-steps">
+      <li>ضيف البوت <b dir="ltr">@${escapeHtml(botName)}</b> لجروب فريقك.</li>
+      <li>اضغط «توليد كود الربط» تحت.</li>
+      <li>ابعت الأمر اللي هيظهرلك جوه الجروب.</li>
+    </ol>
+    <div class="tg-note">تليجرام مابيسمحش للبوت يبعت لجروب من رابطه بس — لازم خطوة الكود دي، وهي كمان اللي بتضمن إن الجروب ده بتاعك فعلًا وإن تقاريرك ماتروحش لجروب غلط. التقارير بتروح لجروب فريقك <b>أنت بس</b>.</div>
+    ${pending}
+    ${linkForm}`;
+}
+
+function bindTeamSettingsEvents(){
+  if(!state.currentUser || state.currentUser.role !== 'admin') return;
+  stopTeamPolling();
+
+  const refreshAndRender = async () => {
+    await teamLoad();
+    renderSidebar();
+    if(state.activePage === 'settings') renderPage();
+  };
+
+  const nameForm = $('#teamNameForm');
+  if(nameForm) nameForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const name = $('#teamNameInput').value.trim();
+    if(name.length < 2){ toast('اسم الفريق لازم يكون حرفين على الأقل', 'err'); return; }
+    setFormBusy(nameForm, true);
+    try {
+      const { data, error } = await sb.rpc('update_team_settings', { p_name: name });
+      if(error) throw new Error(error.message || 'تعذّر حفظ الاسم');
+      state.teamSettings = data;
+      state.team = { id: data.id, name: data.name };
+      renderSidebar();
+      toast('تم تحديث اسم الفريق', 'ok');
+    } catch (err) {
+      toast(err.message, 'err');
+    } finally {
+      setFormBusy(nameForm, false);
+    }
+  });
+
+  const copyLink = $('#copyInviteLinkBtn');
+  if(copyLink) copyLink.addEventListener('click', () => copyText(teamInviteUrl(), 'تم نسخ رابط الدعوة'));
+  const copyCode = $('#copyInviteCodeBtn');
+  if(copyCode) copyCode.addEventListener('click', () => copyText(state.teamSettings.inviteCode, 'تم نسخ الكود'));
+  const regen = $('#regenInviteBtn');
+  if(regen) regen.addEventListener('click', async () => {
+    if(!confirm('تغيير الكود هيبطّل الكود القديم ورابط الدعوة القديم فورًا. متأكد؟')) return;
+    try {
+      const { error } = await sb.rpc('regenerate_invite_code');
+      if(error) throw new Error(error.message || 'تعذّر تغيير الكود');
+      await refreshAndRender();
+      toast('تم تغيير كود الدعوة', 'ok');
+    } catch (err) { toast(err.message, 'err'); }
+  });
+
+  // ---- تليجرام ----
+  const genBtn = $('#tgGenCodeBtn');
+  if(genBtn) genBtn.addEventListener('click', async () => {
+    genBtn.disabled = true;
+    try {
+      const { error } = await sb.rpc('create_telegram_connect_code');
+      if(error) throw new Error(error.message || 'تعذّر توليد الكود');
+      await refreshAndRender();
+    } catch (err) {
+      toast(err.message, 'err');
+      genBtn.disabled = false;
+    }
+  });
+
+  const copyCmd = $('#tgCopyCmdBtn');
+  if(copyCmd) copyCmd.addEventListener('click', () => copyText($('#tgCommandText').textContent.trim(), 'تم نسخ الأمر'));
+
+  const testBtn = $('#tgTestBtn');
+  if(testBtn) testBtn.addEventListener('click', async () => {
+    testBtn.disabled = true;
+    try {
+      const { data: { session } } = await sb.auth.getSession();
+      if(!session) throw new Error('غير مسجل الدخول');
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/telegram-team`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+        body: JSON.stringify({ action: 'test' })
+      });
+      const data = await res.json().catch(() => ({}));
+      if(!res.ok) throw new Error(data.error || 'تعذّر إرسال رسالة التجربة');
+      toast(data.message || 'تم الإرسال', 'ok');
+    } catch (err) {
+      toast(err.message, 'err');
+    } finally {
+      testBtn.disabled = false;
+    }
+  });
+
+  const discBtn = $('#tgDisconnectBtn');
+  if(discBtn) discBtn.addEventListener('click', async () => {
+    if(!confirm('فصل الجروب؟ التقارير هتتوقف لحد ما تربط جروب تاني.')) return;
+    try {
+      const { error } = await sb.rpc('disconnect_telegram');
+      if(error) throw new Error(error.message || 'تعذّر الفصل');
+      await refreshAndRender();
+      toast('تم فصل الجروب', 'ok');
+    } catch (err) { toast(err.message, 'err'); }
+  });
+
+  const toggle = $('#tgReportsToggle');
+  if(toggle) toggle.addEventListener('change', async () => {
+    try {
+      const { data, error } = await sb.rpc('update_team_settings', { p_reports_enabled: toggle.checked });
+      if(error) throw new Error(error.message || 'تعذّر الحفظ');
+      state.teamSettings = data;
+      toast(toggle.checked ? 'التقرير اليومي مفعّل' : 'التقرير اليومي متوقف', 'ok');
+    } catch (err) {
+      toggle.checked = !toggle.checked;
+      toast(err.message, 'err');
+    }
+  });
+
+  const linkForm = $('#tgLinkForm');
+  if(linkForm) linkForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    setFormBusy(linkForm, true);
+    try {
+      const { data, error } = await sb.rpc('update_team_settings', { p_group_link: $('#tgGroupLink').value.trim() });
+      if(error) throw new Error(error.message || 'تعذّر حفظ الرابط');
+      state.teamSettings = data;
+      renderPage();
+      toast('تم حفظ رابط الجروب', 'ok');
+    } catch (err) {
+      toast(err.message, 'err');
+      setFormBusy(linkForm, false);
+    }
+  });
+
+  // لو فيه كود ربط شغال: نراقب الحالة كل 5 ثواني لحد ما البوت يأكد الربط
+  const tg = state.teamSettings && state.teamSettings.telegram;
+  if(tg && !tg.connected && tg.pendingCode){
+    teamPollTimer = setInterval(async () => {
+      if(state.activePage !== 'settings'){ stopTeamPolling(); return; }
+      const before = state.teamSettings.telegram;
+      await teamLoad();
+      const now = state.teamSettings && state.teamSettings.telegram;
+      if(now && (now.connected || !now.pendingCode)){
+        stopTeamPolling();
+        renderPage();
+        if(now.connected && !before.connected) toast('تم ربط جروب تليجرام بنجاح 🎉', 'ok');
+      }
+    }, 5000);
+  }
+}
+
 function pageSettings(){
   const u = state.currentUser;
   return `
@@ -3560,6 +3871,7 @@ function pageSettings(){
           <button type="submit" class="btn btn-primary" style="width:100%;">حفظ كلمة المرور</button>
         </form>
       </div>
+      ${teamSettingsCardsHtml()}
       <div class="card settings-card">
         <h3 class="section-title">مشاركة التطبيق</h3>
         <p style="font-size:13px; color:var(--text-600); margin-bottom:14px;">شارك رابط IT_qan مع زملائك في الفريق</p>
@@ -4088,6 +4400,7 @@ $('#resetPwdForm').addEventListener('submit', async (e) => {
 });
 
 function bindSettingsEvents(){
+  bindTeamSettingsEvents();
   const settingsShareBtn = $('#settingsShareBtn');
   if(settingsShareBtn) settingsShareBtn.addEventListener('click', shareApp);
 
@@ -4162,6 +4475,7 @@ function bindSettingsEvents(){
    INIT
    ============================================================ */
 initAuthTabs();
+initRegisterTeamUi();
 initThemeToggle();
 tryRestoreSession();
 
