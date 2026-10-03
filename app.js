@@ -3648,7 +3648,7 @@ function teamSettingsCardsHtml(){
 }
 
 function telegramCardInnerHtml(tg){
-  const botName = TELEGRAM_BOT_USERNAME;
+  const botName = String(TELEGRAM_BOT_USERNAME).replace(/^@+/, '');
   const linkForm = `
     <form id="tgLinkForm" class="tg-link-form">
       <div class="form-row">
@@ -3687,10 +3687,11 @@ function telegramCardInnerHtml(tg){
     <h3 class="section-title">ربط جروب تليجرام</h3>
     <div class="tg-status off">${ICONS.ban} <span>الفريق غير مربوط بجروب لسه</span></div>
     <ol class="tg-steps">
-      <li>ضيف البوت <b dir="ltr">@${escapeHtml(botName)}</b> لجروب فريقك.</li>
+      <li>ضيف البوت <b dir="ltr">@${escapeHtml(botName)}</b> لجروب فريقك — اضغط الزرار اللي تحت واختار الجروب (مش لازم يبقى أدمن، بس لازم يكون عضو).</li>
       <li>اضغط «توليد كود الربط» تحت.</li>
       <li>ابعت الأمر اللي هيظهرلك جوه الجروب.</li>
     </ol>
+    <a class="btn btn-ghost" style="width:100%;margin:0 0 12px;text-align:center;" dir="rtl" href="https://t.me/${escapeHtml(botName)}?startgroup=true" target="_blank" rel="noopener noreferrer">➕ أضف البوت لجروب فريقك</a>
     <div class="tg-note">تليجرام مابيسمحش للبوت يبعت لجروب من رابطه بس — لازم خطوة الكود دي، وهي كمان اللي بتضمن إن الجروب ده بتاعك فعلًا وإن تقاريرك ماتروحش لجروب غلط. التقارير بتروح لجروب فريقك <b>أنت بس</b>.</div>
     ${pending}
     ${linkForm}`;
