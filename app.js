@@ -183,6 +183,15 @@ async function authLogin({ email, password }){
 async function authRegister({ name, email, username, phone, password, teamCode, newTeamName }){
   // الفريق: إما كود دعوة لفريق موجود (الحساب بيستنى موافقة مديره)، أو اسم فريق جديد
   // (المؤسس بيبقى مدير فريقه ومفعّل فورًا) — والتريجر على قاعدة البيانات هو اللي بيطبّق ده
+  // فحص مسبق: اليوزر نيم/الهاتف/الإيميل مستخدمين؟ (Supabase بيخبّي السبب ويقول "Database error")
+  try {
+    const { data: taken } = await sb.rpc('check_signup_available', { p_username: username, p_phone: phone, p_email: email });
+    if(taken === 'username') throw new Error('اسم المستخدم ده مستخدم بالفعل، جرّب اسم تاني');
+    if(taken === 'phone') throw new Error('رقم الهاتف ده مسجّل بحساب تاني، استخدم رقم مختلف');
+    if(taken === 'email') throw new Error('هذا البريد الإلكتروني مسجّل بالفعل');
+  } catch (e) {
+    if(e && e.message && /مستخدم|مسجّل/.test(e.message)) throw e;
+  }
   const meta = { name, username, phone };
   if(newTeamName) meta.new_team_name = newTeamName;
   else meta.team_code = teamCode;
