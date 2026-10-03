@@ -193,7 +193,10 @@ async function authRegister({ name, email, username, phone, password, teamCode, 
     if(msg.includes('invalid_team_code')) throw new Error('كود الفريق غير صحيح');
     if(msg.includes('username') || msg.includes('idx_users_username')) throw new Error('اسم المستخدم ده مستخدم بالفعل، جرّب اسم تاني');
     if(msg.includes('chk_username_format')) throw new Error('اسم المستخدم لازم يكون حروف إنجليزية/أرقام فقط (3 لـ30 حرف)، من غير @ أو مسافات');
-    throw new Error('تعذّر إنشاء الحساب، حاول مرة أخرى');
+    if(msg.includes('team_required')) throw new Error('لازم تكتب كود فريق أو اسم فريق جديد');
+    if(msg.includes('password') && msg.includes('weak')) throw new Error('كلمة المرور ضعيفة، اختار كلمة أقوى');
+    console.error('signUp error:', error);
+    throw new Error('تعذّر إنشاء الحساب، حاول مرة أخرى' + (error.message ? ' (' + error.message + ')' : ''));
   }
   await sb.auth.signOut(); // عضو منضم = Pending لحد موافقة مدير فريقه
   return { teamCreated: !!newTeamName };
