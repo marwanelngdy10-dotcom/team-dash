@@ -49,7 +49,7 @@ const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 /* اسم بوت تليجرام المشترك لكل الفرق (من BotFather، بدون @) — معلومة عامة مش سرية.
    توكن البوت نفسه موجود في Supabase Secrets بس، ومش في الموقع أبدًا. */
-const TELEGRAM_BOT_USERNAME = 'YOUR_BOT_USERNAME';
+const TELEGRAM_BOT_USERNAME = '@IT_qan_bot';
 
 /* ============================================================
    PWA — تثبيت الموقع كتطبيق + إشعارات Push حقيقية (حتى لو الموقع مقفول)
