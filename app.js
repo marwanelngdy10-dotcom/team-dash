@@ -3644,7 +3644,47 @@ function teamSettingsCardsHtml(){
     </div>
     <div class="card settings-card" id="telegramCard">
       ${telegramCardInnerHtml(s.telegram || {})}
+    </div>
+    <div class="card settings-card" id="taskBotCard">
+      ${taskBotCardInnerHtml(s)}
     </div>`;
+}
+
+function taskBotCardInnerHtml(s){
+  const tg = s.telegram || {};
+  const bot = s.taskBot || { enabled:false, announceAssign:true, remindDays:1, overdueEvery:1, hour:9 };
+  if(!tg.connected){
+    return `
+      <h3 class="section-title">بوت متابعة المهام</h3>
+      <div class="tg-status off">${ICONS.ban} <span>اربط جروب تليجرام الأول من الكارت اللي فوق، وبعدها فعّل البوت هنا.</span></div>
+      <p class="team-invite-note" style="margin:0;">البوت بيعلن في الجروب لما مهمة تتوكّل لحد من الفريق، وبيفكّره بالموعد وبيتابع المتأخر لحد ما يخلّص.</p>`;
+  }
+  const opts = (list, cur) => list.map(([v,l]) => `<option value="${v}" ${Number(cur)===v?'selected':''}>${l}</option>`).join('');
+  const hours = Array.from({length:24}, (_,h) => [h, `${String(h).padStart(2,'0')}:00`]);
+  return `
+    <h3 class="section-title">بوت متابعة المهام</h3>
+    <p class="team-invite-note" style="margin-top:0;">لما تتوكّل مهمة لعضو، البوت بيتابعها في جروب «${escapeHtml(tg.chatTitle || 'الفريق')}» لحد ما تتعلّم «مكتملة».</p>
+    <form id="taskBotForm">
+      <label class="tg-toggle"><input type="checkbox" id="tbEnabled" ${bot.enabled ? 'checked' : ''}> تفعيل بوت المتابعة</label>
+      <label class="tg-toggle"><input type="checkbox" id="tbAnnounce" ${bot.announceAssign ? 'checked' : ''}> أعلن في الجروب لما مهمة تتوكّل لعضو</label>
+      <div class="form-row">
+        <label for="tbRemindDays">فكّر العضو قبل موعد التسليم</label>
+        <select id="tbRemindDays">${opts([[0,'يوم الموعد بس'],[1,'قبلها بيوم'],[2,'قبلها بيومين'],[3,'قبلها بـ3 أيام'],[5,'قبلها بـ5 أيام'],[7,'قبلها بأسبوع']], bot.remindDays)}</select>
+      </div>
+      <div class="form-row">
+        <label for="tbOverdueEvery">كرر تنبيه المهام المتأخرة</label>
+        <select id="tbOverdueEvery">${opts([[1,'كل يوم'],[2,'كل يومين'],[3,'كل 3 أيام'],[7,'كل أسبوع']], bot.overdueEvery)}</select>
+      </div>
+      <div class="form-row">
+        <label for="tbHour">وقت رسالة المتابعة اليومية (توقيت القاهرة)</label>
+        <select id="tbHour">${opts(hours, bot.hour)}</select>
+      </div>
+      <div class="team-actions">
+        <button type="submit" class="btn btn-primary btn-sm">حفظ إعدادات البوت</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="tbRunNowBtn" ${bot.enabled ? '' : 'disabled'}>شغّل المتابعة دلوقتي</button>
+      </div>
+    </form>
+    <div class="tg-note" style="margin-top:12px;">رسالة المتابعة بتتبعت مجمّعة مرة واحدة في اليوم (مش رسالة لكل مهمة)، وإعلان التوكيل بيوصل خلال دقايق من إسناد المهمة. بعد ما تغيّر الإعدادات اضغط «حفظ» قبل «شغّل دلوقتي».</div>`;
 }
 
 function telegramCardInnerHtml(tg){
@@ -3817,6 +3857,50 @@ function bindTeamSettingsEvents(){
     } catch (err) {
       toast(err.message, 'err');
       setFormBusy(linkForm, false);
+    }
+  });
+
+  // ---- بوت متابعة المهام ----
+  const tbForm = $('#taskBotForm');
+  if(tbForm) tbForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    setFormBusy(tbForm, true);
+    try {
+      const { data, error } = await sb.rpc('update_task_bot_settings', {
+        p_enabled: $('#tbEnabled').checked,
+        p_announce_assign: $('#tbAnnounce').checked,
+        p_remind_days: Number($('#tbRemindDays').value),
+        p_overdue_every: Number($('#tbOverdueEvery').value),
+        p_hour: Number($('#tbHour').value)
+      });
+      if(error) throw new Error(error.message || 'تعذّر حفظ إعدادات البوت');
+      state.teamSettings = data;
+      renderPage();
+      toast('تم حفظ إعدادات بوت المتابعة', 'ok');
+    } catch (err) {
+      toast(err.message, 'err');
+      setFormBusy(tbForm, false);
+    }
+  });
+
+  const tbRun = $('#tbRunNowBtn');
+  if(tbRun) tbRun.addEventListener('click', async () => {
+    tbRun.disabled = true;
+    try {
+      const { data: { session } } = await sb.auth.getSession();
+      if(!session) throw new Error('غير مسجل الدخول');
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/task-followup-bot`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+        body: JSON.stringify({ action: 'run_now' })
+      });
+      const data = await res.json().catch(() => ({}));
+      if(!res.ok) throw new Error(data.error || 'تعذّر تشغيل المتابعة');
+      toast(data.message || 'تم', 'ok');
+    } catch (err) {
+      toast(err.message, 'err');
+    } finally {
+      tbRun.disabled = false;
     }
   });
 
